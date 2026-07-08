@@ -62,14 +62,15 @@ def _run_matrix() -> list[dict]:
     for workload_name, trace_fn in WORKLOADS:
         trace = trace_fn()
         for mode in INTERFACE_MODES:
-            metrics = run_trace(trace, interface_mode=mode, config=config)
-            row = {
-                "workload": workload_name,
-                "mode": mode.value,
-                "policy": "fixed_window",
-            }
-            row.update(metrics.as_dict())
-            rows.append(row)
+            for policy_name, policy in POLICIES:
+                metrics = run_trace(trace, interface_mode=mode, config=config, policy=policy)
+                row = {
+                    "workload": workload_name,
+                    "mode": mode.value,
+                    "policy": policy_name,
+                }
+                row.update(metrics.as_dict())
+                rows.append(row)
     return rows
 
 

@@ -22,23 +22,75 @@ class SimulatorConfig:
     useful_prefetch_window_steps: int = 8
 
 
-def _extract_block_id(object_id: str) -> int | None:
-    marker = ".block_"
+import re as _re
+
+
+def _extract_numeric_suffix(object_id: str, marker: str) -> int | None:
     if marker not in object_id:
         return None
     suffix = object_id.split(marker, maxsplit=1)[1]
+    # Handle suffixes like "003" that may be followed by ".tile_015"
+    suffix = _re.split(r"[._]", suffix, maxsplit=1)[0]
     try:
         return int(suffix)
     except ValueError:
         return None
 
 
+def _extract_block_id(object_id: str) -> int | None:
+    return _extract_numeric_suffix(object_id, ".block_")
+
+
+def _extract_tile_id(object_id: str) -> int | None:
+    return _extract_numeric_suffix(object_id, ".tile_")
+
+
+def _extract_expert_id(object_id: str) -> int | None:
+    return _extract_numeric_suffix(object_id, ".expert_")
+
+
+def _extract_chunk_id(object_id: str) -> int | None:
+    return _extract_numeric_suffix(object_id, ".chunk_")
+
+
 def _can_predictably_prefetch(current: AccessEvent, future: AccessEvent, config: SimulatorConfig) -> bool:
-    current_block = _extract_block_id(current.object_id)
-    future_block = _extract_block_id(future.object_id)
-    if current_block is None or future_block is None:
+    # KV blocks: sequential block-ID progression within a locality window
+    if current.object_type == "KV_BLOCK" and future.object_type == "KV_BLOCK":
+        current_id = _extract_block_id(current.object_id)
+        future_id = _extract_block_id(future.object_id)
+        if current_id is not None and future_id is not None:
+            return abs(future_id - current_id) <= config.locality_block_threshold
         return False
-    return abs(future_block - current_block) <= config.locality_block_threshold
+
+    # Weight tiles: same layer → sequential tile IDs are predictable
+    if current.object_type == "WEIGHT_TILE" and future.object_type == "WEIGHT_TILE":
+        if current.layer_id != future.layer_id:
+            return False
+        current_id = _extract_tile_id(current.object_id)
+        future_id = _extract_tile_id(future.object_id)
+        if current_id is not None and future_id is not None:
+            return abs(future_id - current_id) <= config.locality_block_threshold
+        return False
+
+    # MoE expert pages: same layer, expert ID within threshold
+    if current.object_type == "EXPERT_PAGE" and future.object_type == "EXPERT_PAGE":
+        if current.layer_id != future.layer_id:
+            return False
+        current_id = _extract_expert_id(current.object_id)
+        future_id = _extract_expert_id(future.object_id)
+        if current_id is not None and future_id is not None:
+            return abs(future_id - current_id) <= config.locality_block_threshold
+        return False
+
+    # RAG retrieval chunks: same chunk ID (re-access pattern) or adjacent chunk IDs
+    if current.object_type == "RETRIEVAL_CHUNK" and future.object_type == "RETRIEVAL_CHUNK":
+        current_id = _extract_chunk_id(current.object_id)
+        future_id = _extract_chunk_id(future.object_id)
+        if current_id is not None and future_id is not None:
+            return abs(future_id - current_id) <= config.locality_block_threshold
+        return False
+
+    return False
 
 
 def _object_from_event(event: AccessEvent) -> MemoryObject:
@@ -81,6 +133,7 @@ def run_trace(
     *,
     interface_mode: InterfaceMode,
     config: SimulatorConfig | None = None,
+    policy: object | None = None,
 ) -> StreamingMetrics:
     config = config or SimulatorConfig()
     sram = config.sram
@@ -106,13 +159,22 @@ def run_trace(
         )
 
         if allow_prefetch:
-            for lookahead_step in range(event.step + 1, event.step + config.lookahead_steps + 1):
-                future = future_by_step.get(lookahead_step)
+            lookahead_end = min(event.step + config.lookahead_steps + 1, len(ordered_events))
+            future_window = [future_by_step[s] for s in range(event.step + 1, lookahead_end) if s in future_by_step]
+
+            prefetch_candidates: list[str] = []
+            if policy is not None and hasattr(policy, 'plan'):
+                prefetch_candidates = policy.plan(event, future_window)
+            else:
+                for future in future_window:
+                    if _can_predictably_prefetch(event, future, config):
+                        prefetch_candidates.append(future.object_id)
+
+            for oid in set(prefetch_candidates):
+                if oid in prefetched_ready_step:
+                    continue
+                future = next((f for f in future_window if f.object_id == oid), None)
                 if future is None:
-                    continue
-                if future.object_id in prefetched_ready_step:
-                    continue
-                if not _can_predictably_prefetch(event, future, config):
                     continue
 
                 size = future.size_bytes
@@ -196,4 +258,5 @@ def run_trace(
     metrics.dram_utilization_pct = dram.utilization_pct
     metrics.flash_queue_peak = max(metrics.flash_queue_peak, flash.in_flight_count)
     return metrics
+
 
