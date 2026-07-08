@@ -1,0 +1,191 @@
+[
+  {
+    "workload": "long_context_kv",
+    "mode": "ram_emulation",
+    "metrics": {
+      "p50_token_latency_us": 3838.3725714285715,
+      "p95_token_latency_us": 3838.3725714285715,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 512.0,
+      "sequential_flash_reads": 0.0,
+      "sequential_read_ratio": 0.0,
+      "sync_flash_policy_failures": 512.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 0.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 0.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.0,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 1.0
+    }
+  },
+  {
+    "workload": "long_context_kv",
+    "mode": "hybrid",
+    "metrics": {
+      "p50_token_latency_us": 2000.0,
+      "p95_token_latency_us": 2195.3270857142843,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 25.0,
+      "sequential_flash_reads": 248.0,
+      "sequential_read_ratio": 0.9084249084249084,
+      "sync_flash_policy_failures": 25.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.951171875,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.048828125
+    }
+  },
+  {
+    "workload": "long_context_kv",
+    "mode": "stream_to_scratchpad",
+    "metrics": {
+      "p50_token_latency_us": 2000.0,
+      "p95_token_latency_us": 2000.0,
+      "p99_token_latency_us": 2000.0,
+      "random_flash_reads": 0.0,
+      "sequential_flash_reads": 248.0,
+      "sequential_read_ratio": 1.0,
+      "sync_flash_policy_failures": 0.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.05,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 1.0,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.0
+    }
+  },
+  {
+    "workload": "random_old_context",
+    "mode": "ram_emulation",
+    "metrics": {
+      "p50_token_latency_us": 3838.3725714285715,
+      "p95_token_latency_us": 3838.3725714285715,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 512.0,
+      "sequential_flash_reads": 0.0,
+      "sequential_read_ratio": 0.0,
+      "sync_flash_policy_failures": 512.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 0.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 0.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.0,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 1.0
+    }
+  },
+  {
+    "workload": "random_old_context",
+    "mode": "hybrid",
+    "metrics": {
+      "p50_token_latency_us": 2000.0,
+      "p95_token_latency_us": 3011.104914285709,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 35.0,
+      "sequential_flash_reads": 441.0,
+      "sequential_read_ratio": 0.9264705882352942,
+      "sync_flash_policy_failures": 35.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.931640625,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.068359375
+    }
+  },
+  {
+    "workload": "random_old_context",
+    "mode": "stream_to_scratchpad",
+    "metrics": {
+      "p50_token_latency_us": 2000.0,
+      "p95_token_latency_us": 2000.0,
+      "p99_token_latency_us": 2425.123657142854,
+      "random_flash_reads": 5.0,
+      "sequential_flash_reads": 449.0,
+      "sequential_read_ratio": 0.9889867841409692,
+      "sync_flash_policy_failures": 5.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.05,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.990234375,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.009765625
+    }
+  },
+  {
+    "workload": "cold_fanout",
+    "mode": "ram_emulation",
+    "metrics": {
+      "p50_token_latency_us": 3838.3725714285715,
+      "p95_token_latency_us": 3838.3725714285715,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 512.0,
+      "sequential_flash_reads": 0.0,
+      "sequential_read_ratio": 0.0,
+      "sync_flash_policy_failures": 512.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 0.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 0.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.0,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 1.0
+    }
+  },
+  {
+    "workload": "cold_fanout",
+    "mode": "hybrid",
+    "metrics": {
+      "p50_token_latency_us": 3608.576,
+      "p95_token_latency_us": 3803.9030857142843,
+      "p99_token_latency_us": 3838.3725714285715,
+      "random_flash_reads": 444.0,
+      "sequential_flash_reads": 67.0,
+      "sequential_read_ratio": 0.13111545988258316,
+      "sync_flash_policy_failures": 444.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.0,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.1328125,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.8671875
+    }
+  },
+  {
+    "workload": "cold_fanout",
+    "mode": "stream_to_scratchpad",
+    "metrics": {
+      "p50_token_latency_us": 3608.576,
+      "p95_token_latency_us": 3608.576,
+      "p99_token_latency_us": 3693.6007314285707,
+      "random_flash_reads": 417.0,
+      "sequential_flash_reads": 75.0,
+      "sequential_read_ratio": 0.1524390243902439,
+      "sync_flash_policy_failures": 417.0,
+      "average_read_size_bytes": 1048576.0,
+      "trace_layout_efficiency": 1.0,
+      "redundant_capacity_overhead": 0.05,
+      "prefetch_accuracy": 1.0,
+      "late_prefetch_rate": 0.0,
+      "dram_hit_rate": 0.185546875,
+      "sram_hit_rate": 0.125,
+      "sync_flash_miss_rate": 0.814453125
+    }
+  }
+]

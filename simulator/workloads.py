@@ -95,3 +95,41 @@ def generate_random_old_context_trace(
             step += 1
 
     return events
+
+
+def generate_cold_fanout_trace(
+    *,
+    tokens: int = 64,
+    layers: int = 8,
+    kv_block_size_bytes: int = 1_048_576,
+    history_span_blocks: int = 256,
+    fanout_stride: int = 29,
+) -> list[AccessEvent]:
+    """Generate a harsher decode trace with low locality and repeated cold fan-out."""
+
+    events: list[AccessEvent] = []
+    step = 0
+
+    for token_id in range(tokens):
+        current_block = token_id // 2
+        for layer_id in range(layers):
+            if token_id < 4:
+                block_id = current_block
+            else:
+                block_id = (
+                    token_id * fanout_stride
+                    + layer_id * (fanout_stride + 8)
+                    + (token_id % 5) * 37
+                ) % max(history_span_blocks, current_block + 32)
+
+            _append_event(
+                events,
+                step=step,
+                token_id=token_id,
+                layer_id=layer_id,
+                block_id=block_id,
+                kv_block_size_bytes=kv_block_size_bytes,
+            )
+            step += 1
+
+    return events

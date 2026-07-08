@@ -320,6 +320,8 @@ See:
 - `docs/SIMULATOR_PROTOTYPE_RESULTS.md`
 - `docs/LATENCY_BUDGET_MODEL.md`
 - `docs/PREDICTOR_MODEL_DESIGN.md`
+- `benchmarks/results/simulator_matrix.csv`
+- `benchmarks/results/simulator_matrix.json`
 
 ---
 
