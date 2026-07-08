@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -65,9 +66,12 @@ class AsyncFlashReader:
         self._initialized = False
 
     def _open_device(self) -> None:
-        flags = os.O_RDONLY | os.O_SYNC
+        flags = os.O_RDONLY
+        os_sync = getattr(os, "O_SYNC", 0)
+        flags |= os_sync
         if self.config.direct_io:
-            flags |= os.O_DIRECT
+            os_direct = getattr(os, "O_DIRECT", 0)
+            flags |= os_direct
         dev_path = str(self.config.device_path)
         self._fd = os.open(dev_path, flags)
         logger.info("Opened %s (fd=%d)", dev_path, self._fd)
@@ -100,6 +104,16 @@ class AsyncFlashReader:
     def register_layout(self, entry: FlashLayoutEntry) -> None:
         self.layout_map[entry.object_id] = entry
 
+    def _read_at(self, fd: int, buf: memoryview, offset: int) -> int:
+        if hasattr(os, "pread"):
+            result = os.pread(fd, buf, offset)
+            return len(result) if isinstance(result, bytes) else result
+        with self._lock:
+            old_pos = os.lseek(fd, offset, os.SEEK_SET)
+            data = os.read(fd, len(buf))
+            buf[:len(data)] = data
+            return len(data)
+
     def submit_read(self, object_id: str) -> IORequest | None:
         entry = self.layout_map.get(object_id)
         if entry is None:
@@ -121,7 +135,7 @@ class AsyncFlashReader:
             self._in_flight[object_id] = request
         if self._fd is not None and self.config.deferred_completion:
             buf_view = memoryview(buf)[: entry.read_size]
-            nread = os.pread(self._fd, buf_view, entry.offset)
+            nread = self._read_at(self._fd, buf_view, entry.offset)
             if nread != entry.read_size:
                 request.status = IOStatus.FAILED
             else:
@@ -148,6 +162,9 @@ class AsyncFlashReader:
                         return req
             time.sleep(0.001)
         return None
+
+    def is_initialized(self) -> bool:
+        return self._initialized
 
     @property
     def in_flight_count(self) -> int:

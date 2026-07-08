@@ -1,4 +1,4 @@
-\"\"\"Pack model, KV, or expert bundles into sequential flash-oriented layout files.\"\"\"
+"""Pack model, KV, or expert bundles into sequential flash-oriented layout files."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-PACK_MAGIC = b"FSDIFPACK"
+PACK_MAGIC = b"FSDIFPAC"
 PACK_VERSION = 1
 
 
@@ -70,3 +70,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

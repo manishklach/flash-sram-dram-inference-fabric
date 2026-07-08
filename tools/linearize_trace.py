@@ -1,4 +1,4 @@
-\"\"\"Read trace JSONL, group co-accessed objects, emit linearized layout metadata.\"\"\"
+"""Read trace JSONL, group co-accessed objects, emit linearized layout metadata."""
 
 from __future__ import annotations
 
@@ -121,3 +121,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

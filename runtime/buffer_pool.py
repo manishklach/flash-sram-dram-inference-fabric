@@ -74,7 +74,7 @@ class DRAMBufferPool:
         for slot in self.slots:
             if slot.object_id == object_id and not slot.is_free():
                 return slot
-        return slot
+        return None
 
     def evict_one(self) -> BufferSlot | None:
         for slot in self.slots:
