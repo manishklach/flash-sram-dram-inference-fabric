@@ -315,6 +315,7 @@ Current runnable evidence path:
 python scripts/run_sim.py
 python scripts/sweep_dram.py
 python scripts/sweep_lookahead_dram.py
+python scripts/run_deployment_model.py
 ```
 
 See:
@@ -322,6 +323,7 @@ See:
 - `docs/SIMULATOR_PROTOTYPE_RESULTS.md`
 - `docs/DRAM_CAPACITY_SWEEP_RESULTS.md`
 - `docs/LOOKAHEAD_DRAM_SWEEP_RESULTS.md`
+- `docs/DEPLOYMENT_ECONOMICS_RESULTS.md`
 - `docs/LATENCY_BUDGET_MODEL.md`
 - `docs/PREDICTOR_MODEL_DESIGN.md`
 - `benchmarks/results/simulator_matrix.csv`
@@ -330,6 +332,8 @@ See:
 - `benchmarks/results/dram_capacity_sweep.json`
 - `benchmarks/results/lookahead_dram_sweep.csv`
 - `benchmarks/results/lookahead_dram_sweep.json`
+- `benchmarks/results/deployment_economics.csv`
+- `benchmarks/results/deployment_economics.json`
 
 ---
 
