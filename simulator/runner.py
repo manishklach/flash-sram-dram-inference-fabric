@@ -17,11 +17,31 @@ class SimulatorConfig:
     flash_bandwidth_gbps: float = 7.0
     lookahead_steps: int = 12
     warmup_steps: int = 24
+    locality_block_threshold: int = 4
 
 
 def _transfer_time_us(size_bytes: int, *, bandwidth_gbps: float, base_latency_us: float) -> float:
     bytes_per_us = bandwidth_gbps * 1_000.0
     return base_latency_us + (size_bytes / bytes_per_us)
+
+
+def _extract_block_id(object_id: str) -> int | None:
+    marker = ".block_"
+    if marker not in object_id:
+        return None
+    suffix = object_id.split(marker, maxsplit=1)[1]
+    try:
+        return int(suffix)
+    except ValueError:
+        return None
+
+
+def _can_predictably_prefetch(current: AccessEvent, future: AccessEvent, config: SimulatorConfig) -> bool:
+    current_block = _extract_block_id(current.object_id)
+    future_block = _extract_block_id(future.object_id)
+    if current_block is None or future_block is None:
+        return False
+    return abs(future_block - current_block) <= config.locality_block_threshold
 
 
 def run_trace(
@@ -49,6 +69,8 @@ def run_trace(
                     if future is None:
                         continue
                     if future.object_id in prefetched_ready_step:
+                        continue
+                    if not _can_predictably_prefetch(event, future, config):
                         continue
                     ready_step = event.step + _transfer_time_us(
                         future.size_bytes,
