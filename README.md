@@ -8,6 +8,10 @@ A research project exploring deterministic inference memory orchestration across
 
 ---
 
+> **[View the project site](https://manishklach.github.io/flash-sram-dram-inference-fabric/)**
+
+---
+
 ## Detailed Repository Description
 
 Flash-SRAM-DRAM Inference Fabric is a research project exploring a software-defined memory hierarchy for large-scale AI inference that combines on-chip SRAM, commodity DRAM/LPDDR, and low-cost NVMe SSD flash into a predictive multi-tier memory fabric.

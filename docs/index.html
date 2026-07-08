@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flash-SRAM-DRAM Inference Fabric</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #8b949e;
+  --accent: #58a6ff;
+  --accent2: #3fb950;
+  --accent3: #d29922;
+  --accent4: #f78166;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.7;
+  font-size: 15px;
+}
+.container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+/* Header */
+header {
+  padding: 64px 0 48px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+header h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--accent) 0%, #a371f7 50%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+header .tagline {
+  margin-top: 12px;
+  color: var(--dim);
+  font-size: 1.05rem;
+}
+header .sum {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 1.3rem;
+  color: var(--accent2);
+}
+
+/* Sections */
+section { padding: 48px 0; border-bottom: 1px solid var(--border); }
+section:last-child { border-bottom: none; }
+h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--accent);
+}
+h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 24px 0 12px;
+}
+p { margin-bottom: 14px; color: var(--text); }
+.dim { color: var(--dim); font-size: 0.9rem; }
+.lead {
+  font-size: 1.1rem;
+  line-height: 1.7;
+  color: #c9d1d9;
+  border-left: 3px solid var(--accent);
+  padding-left: 20px;
+  margin: 24px 0;
+}
+
+/* Diagram wrappers */
+.diagram {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  margin: 24px 0;
+  overflow-x: auto;
+}
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--dim);
+  margin-top: -12px;
+  margin-bottom: 24px;
+}
+
+/* Tiers */
+.tiers { display: flex; gap: 16px; margin: 24px 0; flex-wrap: wrap; }
+.tier {
+  flex: 1;
+  min-width: 200px;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.tier h4 { font-size: 1rem; margin-bottom: 8px; }
+.tier ul { list-style: none; }
+.tier li {
+  font-size: 0.85rem;
+  color: var(--dim);
+  padding: 3px 0;
+}
+.tier li:before { content: "> "; color: var(--accent3); }
+.tier-sram { border-color: #58a6ff; background: #58a6ff0d; }
+.tier-dram { border-color: #d29922; background: #d299220d; }
+.tier-flash { border-color: #3fb950; background: #3fb9500d; }
+
+/* Stats grid */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 24px 0; }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  text-align: center;
+}
+.stat .val { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); }
+.stat .lbl { font-size: 0.8rem; color: var(--dim); margin-top: 4px; }
+
+/* Links */
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Code blocks */
+pre, code { font-family: var(--mono); font-size: 0.85rem; }
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+code { background: var(--surface); padding: 2px 6px; border-radius: 3px; }
+pre code { background: none; padding: 0; }
+
+/* Button */
+.btn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+.btn:hover { background: #4090e0; text-decoration: none; }
+
+.footer {
+  text-align: center;
+  padding: 32px 0;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  header h1 { font-size: 1.5rem; }
+  .tiers { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <p class="sum">Flash → DRAM → SRAM</p>
+    <h1>Deterministic Inference Memory Fabric</h1>
+    <p class="tagline">A software-defined memory hierarchy that transforms low-cost NVMe flash into a hidden sequential streaming tier for AI inference</p>
+  </div>
+</header>
+
+<div class="container">
+
+<!-- Thesis -->
+<section>
+  <h2>The Core Idea</h2>
+  <div class="lead">
+    <strong>Flash is not treated as slow RAM. Flash is treated as a high-capacity sequential stream source. DRAM is the predictive staging buffer. SRAM is the deterministic scratchpad hot path.</strong>
+  </div>
+  <p>
+    A synchronous flash read during token generation is a <em>policy failure</em>, not a normal cache miss.
+    Model inference has highly predictable access patterns — transformer layers execute in order, weights can be linearized,
+    KV cache has temperature and locality, MoE expert routing is often predictable. This predictability lets us
+    use low-cost NVMe flash as a high-capacity sequential streaming tier, hidden behind DRAM staging and explicit SRAM scheduling.
+  </p>
+  <p>
+    The goal is not to make flash behave like true random-access memory. The goal is to avoid putting flash
+    on the synchronous token path altogether.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="val">~49%</div><div class="lbl">TCO savings vs all-DRAM server</div></div>
+    <div class="stat"><div class="val">10x</div><div class="lbl">Flash energy efficiency vs DRAM</div></div>
+    <div class="stat"><div class="val">4 TB</div><div class="lbl">Flash capacity @ commodity pricing</div></div>
+    <div class="stat"><div class="val">5</div><div class="lbl">Baseline prefetch policies</div></div>
+  </div>
+</section>
+
+<!-- Architecture Overview -->
+<section>
+  <h2>Memory Hierarchy</h2>
+  <p>Three tiers with distinct responsibilities, bandwidth characteristics, and cost profiles:</p>
+
+  <div class="tiers">
+    <div class="tier tier-sram">
+      <h4 style="color:#58a6ff;">SRAM Scratchpad</h4>
+      <ul>
+        <li>64 MB on-chip capacity</li>
+        <li>5 ns latency, high bandwidth</li>
+        <li>Active token working set</li>
+        <li>Current attention tiles</li>
+        <li>Decompressed tensor tiles</li>
+        <li>Compute: SRAM hot path</li>
+      </ul>
+    </div>
+    <div class="tier tier-dram">
+      <h4 style="color:#d29922;">DRAM / LPDDR Staging</h4>
+      <ul>
+        <li>8-512 GB capacity</li>
+        <li>80 ns latency, 100 GB/s</li>
+        <li>Predictive staging buffer</li>
+        <li>Warm KV blocks</li>
+        <li>Upcoming layer bundles</li>
+        <li>Residency metadata</li>
+      </ul>
+    </div>
+    <div class="tier tier-flash">
+      <h4 style="color:#3fb950;">NVMe Flash Capacity</h4>
+      <ul>
+        <li>2-4 TB capacity</li>
+        <li>80 &mu;s latency (sequential)</li>
+        <li>7 GB/s sequential bandwidth</li>
+        <li>Cold KV cache + MoE experts</li>
+        <li>Model weight bundles</li>
+        <li>Long-context history</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+    A[AI Compute Engine] --> B[SRAM Tier<br/>Hot token tiles<br/>Active KV<br/>Decode scratch]
+    B --> C[DRAM / LPDDR Tier<br/>Warm KV<br/>Prefetch window<br/>Staging buffers]
+    C --> D[NVMe SSD Flash Tier<br/>Cold KV<br/>Model pages<br/>MoE experts<br/>Long context]
+    style A fill:#1f6feb,color:#fff
+    style B fill:#58a6ff40,stroke:#58a6ff
+    style C fill:#d2992240,stroke:#d29922
+    style D fill:#3fb95040,stroke:#3fb950
+    </pre>
+  </div>
+
+  <h3>Visible Path vs Hidden Path</h3>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+    subgraph Critical Path
+        A[SRAM] --> B[Compute] --> C[Output Token]
+    end
+    subgraph Hidden Path
+        D[SSD Flash] --> E[DRAM Staging] --> F[SRAM Promotion]
+    end
+    F -. ready before use .-> A
+    style A fill:#58a6ff40,stroke:#58a6ff
+    style B fill:#1f6feb,color:#fff
+    style D fill:#3fb95040,stroke:#3fb950
+    style E fill:#d2992240,stroke:#d29922
+    style F fill:#58a6ff40,stroke:#58a6ff
+    </pre>
+  </div>
+  <p class="diagram-caption">The critical token path (SRAM → Compute → Token) must never include a synchronous flash read. Flash traffic happens exclusively in the hidden path (Flash → DRAM → SRAM), completing before compute needs the data.</p>
+</section>
+
+<!-- Pipeline -->
+<section>
+  <h2>Inference Pipeline</h2>
+  <p>At any given decode step, three tiers operate concurrently on different parts of the model:</p>
+
+  <pre>Token T, layer 12 is computing:
+
+  SRAM:   serves active layer-12 tiles
+  DRAM:   holds layers 13-16 and hot KV blocks
+  Flash:  streams layers 17-32 and cold KV bundles into DRAM</pre>
+
+  <p>By the time the model reaches layer 17, the next weight and KV data should already be present in DRAM and ready for promotion into SRAM. This is the core scheduling contract.</p>
+</section>
+
+<!-- Runtime -->
+<section>
+  <h2>Runtime System Architecture</h2>
+  <p>Six-component runtime that orchestrates the entire data movement pipeline:</p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+    A[Token Driver] --> B[Residency Manager]
+    A --> C[Prefetch Planner]
+    C --> D[Flash IO Engine]
+    D --> E[DRAM Buffer Pool]
+    E --> F[Decompression Workers]
+    F --> G[SRAM Manager]
+    B --> G
+    G --> H[Compute Engine]
+    B --> I[Metrics + Policy Engine]
+    I --> C
+    style A fill:#1f6feb,color:#fff
+    style H fill:#1f6feb,color:#fff
+    </pre>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="val">7</div><div class="lbl">Workload generators</div></div>
+    <div class="stat"><div class="val">5</div><div class="lbl">Prefetch policies</div></div>
+    <div class="stat"><div class="val">3</div><div class="lbl">Interface modes</div></div>
+    <div class="stat"><div class="val">63</div><div class="lbl">Passing tests</div></div>
+  </div>
+</section>
+
+<!-- Object Lifecycle -->
+<section>
+  <h2>Object State Machine</h2>
+  <p>Every memory object traverses a deterministic lifecycle across the three tiers:</p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+stateDiagram-v2
+    [*] --> FLASH_ONLY
+    FLASH_ONLY --> FLASH_TO_DRAM_IN_FLIGHT
+    FLASH_TO_DRAM_IN_FLIGHT --> DRAM_RESIDENT
+    DRAM_RESIDENT --> DRAM_TO_SRAM_IN_FLIGHT
+    DRAM_TO_SRAM_IN_FLIGHT --> SRAM_RESIDENT
+    SRAM_RESIDENT --> DRAM_RESIDENT
+    DRAM_RESIDENT --> COMPRESSED_COLD
+    COMPRESSED_COLD --> FLASH_ONLY
+    </pre>
+  </div>
+</section>
+
+<!-- KV MoE Tiering -->
+<section>
+  <h2>KV Cache Tiering</h2>
+  <p>KV blocks are tagged with a <em>temperature score</em> based on recency, attention, sink token bonus, retrieval frequency, and reuse distance. The tiering policy places hot blocks in SRAM/DRAM, warm blocks in DRAM, and cold blocks in compressed flash.</p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+    A[KV Cache] --> B[Hot KV]
+    A --> C[Warm KV]
+    A --> D[Cold KV]
+    B --> E[SRAM / DRAM]
+    C --> F[DRAM]
+    D --> G[Compressed Flash]
+    H[Attention Scores] --> B
+    H --> C
+    H --> D
+    </pre>
+  </div>
+
+  <h3>MoE Expert Tiering</h3>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+    A[Router / Predictor] --> B[Top-K Likely Experts]
+    B --> C[DRAM Prefetch]
+    C --> D[Selected Expert Tiles]
+    D --> E[SRAM]
+    E --> F[Expert Compute]
+    G[Cold Experts] --> H[SSD Flash]
+    H --> C
+    </pre>
+  </div>
+  <p class="diagram-caption">MoE experts are prefetched into DRAM before the router selects them. Cold experts stay in compressed flash until predicted. Low routing entropy yields high prefetch accuracy.</p>
+</section>
+
+<!-- Simulator -->
+<section>
+  <h2>Simulation Results</h2>
+  <p>The simulator validates the architecture across 7 workloads × 3 interface modes × 5 prefetch policies. Key findings:</p>
+
+  <h3>Stream-to-Scratchpad eliminates synchronous flash failures</h3>
+  <p>Across all workloads, stream-to-scratchpad mode achieves <strong>0 synchronous flash failures</strong> at the cost of some prefetch waste during cold-start windows. RAM-emulation mode produces 248-844 failures per workload as expected.</p>
+
+  <h3>Cold fanout is the hardest boundary</h3>
+  <p>The cold_fanout workload (adversarial random access) exposes the fundamental limitation: no prefetch policy can save a workload with no predictability. FixedWindow achieves 98.4% accuracy here because window size matches the fanout pattern — but at 1.5x waste rate due to double-promotion.</p>
+
+  <h3>DRAM capacity is the primary cost driver</h3>
+  <p>Sweeps from 16 MB to 512 MB DRAM show: structured KV workloads benefit from 64-128 MB, random old-context needs 256-512 MB, and cold fan-out fails at all capacities. The deployment model projects ~49% TCO savings for enterprise RAG vs all-DRAM baseline.</p>
+
+  <h3>Deployment Economics (Enterprise RAG)</h3>
+  <div class="stats">
+    <div class="stat"><div class="val">$9,428</div><div class="lbl">Fabric capex</div></div>
+    <div class="stat"><div class="val">$18,500</div><div class="lbl">Baseline capex</div></div>
+    <div class="stat"><div class="val">49.1%</div><div class="lbl">TCO savings (3 years)</div></div>
+    <div class="stat"><div class="val">128 MB</div><div class="lbl">DRAM staging needed</div></div>
+  </div>
+</section>
+
+<!-- Repository Structure -->
+<section>
+  <h2>Repository Structure</h2>
+  <pre><code>flash-sram-dram-inference-fabric/
+  README.md                 # Project overview & run commands
+  ARCHITECTURE.md          # 3-tier architecture design (568 lines)
+  RUNTIME.md               # Runtime scheduler design (590 lines)
+  COMPILER.md             # Compiler & graph support (381 lines)
+  BENCHMARKS.md            # Evaluation methodology (254 lines)
+  THREATS_AND_LIMITATIONS.md  # Honest failure analysis (161 lines)
+
+  docs/                    # 26 detailed design documents
+  simulator/                 # Runnable 3-tier simulator (12 files)
+  runtime/                 # Runtime modules: buffer_pool, flash_io,
+                          #   trace_replay, llama_bridge (5 files)
+  scripts/                 # Experiment runners: run_sim, sweep_dram,
+                          #   sweep_lookahead_dram, deploy model (4 scripts)
+  tools/                  # Toolkit: linearize_trace, pack_flash_layout,
+                          #   analyze_read_pattern (3 tools)
+  tests/                  # 63 pytest tests across all modules (8 files)
+  benchmarks/results/    # 4 artifact sets (CSV + JSON)</code></pre>
+</section>
+
+<!-- Quick Start -->
+<section>
+  <h2>Quick Start</h2>
+  <pre><code># Clone and run the simulator
+git clone https://github.com/manishklach/flash-sram-dram-inference-fabric.git
+cd flash-sram-dram-inference-fabric
+python -m scripts.run_sim       # 105 configurations
+python -m scripts.sweep_dram  # DRAM capacity sweep
+python -m pytest tests/ -v    # 63 tests</code></pre>
+</section>
+
+<!-- License -->
+<section>
+  <h2>License</h2>
+  <p>MIT License. See <a href="https://github.com/manishklach/flash-sram-dram-inference-fabric/blob/main/LICENSE">LICENSE</a> for details.</p>
+</section>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>Flash-SRAM-DRAM Inference Fabric &mdash; <a href="https://github.com/manishklach/flash-sram-dram-inference-fabric">GitHub</a></p>
+    <p class="dim" style="margin-top:4px;">Deterministic inference memory orchestration for lower-cost AI serving</p>
+  </div>
+</footer>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1f6feb',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#8b949e',
+    secondaryColor: '#161b22',
+    tertiaryColor: '#0d1117',
+    fontSize: '14px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+    mainBkg: '#161b22',
+    nodeBorder: '#30363d',
+    clusterBkg: '#0d1117',
+    clusterBorder: '#30363d',
+    edgeLabelBackground: '#161b22',
+    nodeTextColor: '#e6edf3',
+    titleColor: '#e6edf3',
+  },
+});
+</script>
+</body>
+</html>
