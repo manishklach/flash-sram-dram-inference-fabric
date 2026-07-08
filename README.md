@@ -150,6 +150,11 @@ docs/MOE_EXPERT_TIERING.md
 docs/LINUX_IO_RUNTIME.md
 docs/DATA_FORMATS.md
 docs/DIAGRAMS.md
+docs/COMPRESSION_AND_DECOMPRESSION.md
+docs/LATENCY_BUDGET_MODEL.md
+docs/PREDICTOR_MODEL_DESIGN.md
+docs/COMMERCIALIZATION_STRATEGY.md
+docs/PRODUCT_WEDGE.md
 ```
 
 Early implementation stubs:
@@ -302,6 +307,29 @@ It is a deterministic inference memory orchestration system built from:
 ## Project Status
 
 The repo currently focuses on architecture, runtime, compiler, and benchmark design, plus early simulator and tooling stubs for trace-guided streaming research.
+
+---
+
+## Commercialization Path
+
+The most credible first business is not a general-purpose replacement for accelerator memory.
+
+The strongest initial wedge is a low-cost inference system for workloads where:
+
+- long-context KV dominates memory cost
+- regulated or on-prem deployment matters
+- latency still matters, but not every workload needs frontier-scale HBM clusters
+- MoE hot sets and cold state can be staged predictively
+- customers care about total system cost, not just benchmark peak throughput
+
+Practical first products could include:
+
+- enterprise on-prem inference appliances for long-context RAG
+- edge and sovereign AI servers with large cold-state capacity
+- MoE-serving systems that keep only hot experts in premium memory
+- software plus reference-platform licensing for OEMs and accelerator vendors
+
+The business thesis is that lower memory cost can unlock workloads that are uneconomic on premium-memory-heavy systems, especially when customers need large context, private deployment, or many idle-but-resumable sessions.
 
 ---
 
