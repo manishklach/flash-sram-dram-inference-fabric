@@ -35,6 +35,15 @@ class StreamingMetrics:
     dram_hits: int = 0
     sram_hits: int = 0
     total_events: int = 0
+    energy_joules: float = 0.0
+    sram_promotions: int = 0
+    dram_promotions: int = 0
+    dram_evictions_to_flash: int = 0
+    sram_utilization_pct: float = 0.0
+    dram_utilization_pct: float = 0.0
+    flash_queue_peak: int = 0
+    flash_queue_avg: float = 0.0
+    flash_bandwidth_util_pct: float = 0.0
 
     def recompute_ratios(self) -> None:
         total_reads = self.random_flash_reads + self.sequential_flash_reads
@@ -44,7 +53,6 @@ class StreamingMetrics:
         else:
             self.sequential_read_ratio = self.sequential_flash_reads / total_reads
             self.average_read_size_bytes = self.total_read_size_bytes / total_reads
-
         if self.prefetched_objects == 0:
             self.trace_layout_efficiency = 0.0
         else:
@@ -86,4 +94,10 @@ class StreamingMetrics:
             "sync_flash_miss_rate": (
                 self.sync_flash_policy_failures / self.total_events if self.total_events else 0.0
             ),
+            "energy_joules": self.energy_joules,
+            "sram_promotions": float(self.sram_promotions),
+            "dram_promotions": float(self.dram_promotions),
+            "sram_utilization_pct": self.sram_utilization_pct,
+            "dram_utilization_pct": self.dram_utilization_pct,
+            "flash_queue_peak": float(self.flash_queue_peak),
         }
