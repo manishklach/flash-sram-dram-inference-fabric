@@ -105,14 +105,18 @@ class AsyncFlashReader:
         self.layout_map[entry.object_id] = entry
 
     def _read_at(self, fd: int, buf: memoryview, offset: int) -> int:
+        raw = bytearray(buf)
         if hasattr(os, "pread"):
-            result = os.pread(fd, buf, offset)
-            return len(result) if isinstance(result, bytes) else result
-        with self._lock:
-            old_pos = os.lseek(fd, offset, os.SEEK_SET)
-            data = os.read(fd, len(buf))
-            buf[:len(data)] = data
-            return len(data)
+            result = os.pread(fd, raw, offset)
+            nread = len(result) if isinstance(result, bytes) else result
+        else:
+            with self._lock:
+                old_pos = os.lseek(fd, offset, os.SEEK_SET)
+                data = os.read(fd, len(raw))
+                nread = len(data)
+                raw[:nread] = data[:nread]
+        buf[:nread] = raw[:nread]
+        return nread
 
     def submit_read(self, object_id: str) -> IORequest | None:
         entry = self.layout_map.get(object_id)
