@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-The runtime is the core of the Flash–SRAM–DRAM Inference Fabric.
+The runtime is the core of the Flash-SRAM-DRAM Inference Fabric.
 
 Its job is to make sure the compute engine receives data from SRAM or DRAM, while flash IO happens early enough to be invisible.
 
@@ -17,27 +17,29 @@ The runtime is responsible for:
 - compression/decompression coordination
 - multi-tenant fairness
 - latency-budget enforcement
+- deadline tracking
+- trace replay
 
 ---
 
 ## 2. Runtime Components
 
 ```text
-┌───────────────────────────────────────────────────────────────┐
-│                         Runtime                               │
-│                                                               │
-│ ┌───────────────┐  ┌────────────────┐  ┌───────────────────┐ │
-│ │ Token Driver  │  │ Residency Mgr  │  │ Prefetch Planner  │ │
-│ └──────┬────────┘  └───────┬────────┘  └─────────┬─────────┘ │
-│        │                   │                     │           │
-│ ┌──────▼────────┐  ┌───────▼────────┐  ┌─────────▼─────────┐ │
-│ │ SRAM Manager  │  │ DRAM Manager   │  │ Flash IO Engine   │ │
-│ └──────┬────────┘  └───────┬────────┘  └─────────┬─────────┘ │
-│        │                   │                     │           │
-│ ┌──────▼───────────────────▼─────────────────────▼─────────┐ │
-│ │                 Metrics + Policy Engine                    │ │
-│ └───────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------+
+|                         Runtime                               |
+|                                                               |
+| +---------------+  +----------------+  +-------------------+ |
+| | Token Driver  |  | Residency Mgr  |  | Prefetch Planner  | |
+| +-------+-------+  +--------+-------+  +---------+---------+ |
+|         |                   |                     |           |
+| +-------v--------+  +-------v--------+  +---------v---------+ |
+| | SRAM Manager   |  | DRAM Manager   |  | Flash IO Engine   | |
+| +-------+--------+  +-------+--------+  +---------+---------+ |
+|         |                   |                     |           |
+| +-------v-----------------------------------------v---------+ |
+| |              Metrics + Policy Engine + Trace Replay       | |
+| +-----------------------------------------------------------+ |
++---------------------------------------------------------------+
 ```
 
 ---
@@ -58,15 +60,13 @@ for token in generation:
     runtime.commit_token(token)
 ```
 
-The token driver should never synchronously wait for SSD unless a severe miss occurs.
+The token driver should not synchronously wait for SSD during normal operation.
 
 ---
 
 ## 4. Residency Manager
 
 The residency manager tracks where every object lives.
-
-Object metadata:
 
 ```python
 class ObjectState:
@@ -83,6 +83,7 @@ class ObjectState:
     dirty: bool
     owner_session: str
     priority: int
+    deadline_step: int | None
 ```
 
 Object types:
@@ -115,28 +116,39 @@ PINNED
 COMPRESSED_COLD
 ```
 
-State transitions:
+---
 
-```text
-FLASH_ONLY
-  → FLASH_TO_DRAM_IN_FLIGHT
-  → DRAM_RESIDENT
-  → DRAM_TO_SRAM_IN_FLIGHT
-  → SRAM_RESIDENT
+## 6. Deadline-Aware Streaming
+
+Each flash read should be modeled as a deadline-bearing operation, not a best-effort cache fill.
+
+Each read carries:
+
+- object id
+- byte range
+- target DRAM buffer
+- deadline
+- priority
+- expected use step
+
+Example request:
+
+```python
+class StreamingRequest:
+    object_id: str
+    byte_offset: int
+    size_bytes: int
+    dram_buffer_id: str
+    deadline_step: int
+    expected_use_step: int
+    priority: float
 ```
 
-Eviction:
-
-```text
-SRAM_RESIDENT
-  → DRAM_RESIDENT
-  → COMPRESSED_COLD
-  → FLASH_ONLY
-```
+Late completion is not just a lower hit rate. It is a policy failure against the runtime contract.
 
 ---
 
-## 6. Prefetch Planner
+## 7. Prefetch Planner
 
 The prefetch planner predicts future needs.
 
@@ -152,6 +164,7 @@ Inputs:
 - flash queue state
 - DRAM free space
 - latency budget
+- trace replay metadata
 
 Outputs:
 
@@ -163,7 +176,7 @@ Outputs:
 
 ---
 
-## 7. Prefetch Priority Score
+## 8. Prefetch Priority Score
 
 Example scoring function:
 
@@ -176,7 +189,7 @@ score =
 + E * tenant_priority
 - F * object_size_penalty
 - G * decompression_cost
-- H * DRAM_pressure_penalty
+- H * dram_pressure_penalty
 ```
 
 Where:
@@ -187,7 +200,7 @@ imminence = 1 / predicted_steps_until_use
 
 ---
 
-## 8. SRAM Manager
+## 9. SRAM Manager
 
 SRAM capacity is scarce.
 
@@ -200,29 +213,13 @@ SRAM manager responsibilities:
 - respect compiler tile schedule
 - maintain deterministic timing
 
-SRAM admission policy:
-
-```text
-admit if:
-  predicted_next_use <= near_threshold
-  and object fits
-  and object is needed by active compute step
-```
-
-SRAM eviction policy:
-
-```text
-evict if:
-  compute step complete
-  and no near-term reuse
-  and object is not pinned
-```
+SRAM is not modeled as a passive cache. It is explicitly scheduled as a scratchpad ring.
 
 ---
 
-## 9. DRAM Manager
+## 10. DRAM Manager
 
-DRAM acts as the main staging layer.
+DRAM acts as the main predictive staging buffer.
 
 Responsibilities:
 
@@ -241,23 +238,14 @@ admit if:
   object is likely needed within prefetch_window
   or object is repeatedly accessed
   or object is required by compiler schedule
-```
-
-DRAM eviction policy:
-
-```text
-evict lowest score objects:
-  cold KV
-  low-probability experts
-  old retrieval chunks
-  inactive sessions
+  or object is referenced by trace-guided metadata
 ```
 
 ---
 
-## 10. Flash IO Engine
+## 11. Flash IO Engine
 
-Flash IO must be asynchronous and batched.
+Flash IO must be asynchronous, batched, and mostly sequential.
 
 Possible implementation:
 
@@ -290,7 +278,68 @@ def on_flash_complete(page):
 
 ---
 
-## 11. IO Batching
+## 12. Policy Failure Definition
+
+The runtime should make policy failures explicit.
+
+```text
+Synchronous flash read on token-critical path = policy failure
+```
+
+Other policy failures:
+
+- late prefetch completion
+- decompression misses deadline
+- SRAM tile not ready at use step
+- random read burst dominates sequential plan
+
+These should be reported directly in metrics and logs, not hidden inside generic cache statistics.
+
+---
+
+## 13. Runtime Modes
+
+The repo should support multiple research modes:
+
+### Compatibility RAM-Emulation Mode
+
+- flash appears memory-like
+- easier to get running
+- good for functional bring-up
+- fragile under random access
+
+### Optimized Stream-to-Scratchpad Mode
+
+- explicit sequential streaming
+- explicit DRAM staging
+- explicit SRAM promotion
+- preferred high-performance direction
+
+### Hybrid Migration Mode
+
+- boot or cold-start with RAM-emulation semantics
+- capture traces and hot paths
+- migrate repeated accesses to explicit streaming
+
+> RAM-emulation gets the model running. Stream-to-scratchpad gets the model fast.
+
+---
+
+## 14. Trace Replay Mode
+
+The runtime can replay captured access traces to test:
+
+- prefetch policy quality
+- flash layout quality
+- bundle ordering
+- SRAM scheduling
+- p95 and p99 latency behavior
+
+Replay mode is especially useful before full integration with a live inference engine.
+
+---
+
+## 15. IO Batching
 
 Bad:
 
@@ -301,7 +350,7 @@ many small random 4KB reads
 Good:
 
 ```text
-large sequential 1MB–16MB reads
+large sequential 1MB-16MB reads
 ```
 
 Batching opportunities:
@@ -314,7 +363,7 @@ Batching opportunities:
 
 ---
 
-## 12. Decompression Pipeline
+## 16. Decompression Pipeline
 
 Cold flash pages may be compressed.
 
@@ -322,25 +371,27 @@ Pipeline:
 
 ```text
 Flash read
-  ↓
+  |
+  v
 DRAM compressed buffer
-  ↓
+  |
+  v
 decompress worker
-  ↓
+  |
+  v
 DRAM uncompressed buffer
-  ↓
+  |
+  v
 SRAM promotion
 ```
 
-Decompression must not block compute.
+Decompression must not block compute and must complete before the object's use deadline.
 
 ---
 
-## 13. KV Cache Runtime
+## 17. KV Cache Runtime
 
 KV cache should be tracked by block.
-
-KV block metadata:
 
 ```python
 class KVBlock:
@@ -355,52 +406,9 @@ class KVBlock:
     compressed: bool
 ```
 
-KV temperature:
-
-```text
-hot:
-  recent tokens
-  sink tokens
-  high-attention blocks
-
-warm:
-  medium-distance context
-  occasionally attended blocks
-
-cold:
-  old low-attention context
-  inactive session context
-```
-
 ---
 
-## 14. KV Promotion
-
-Promote KV block when:
-
-- attention probability rises
-- sliding window approaches block
-- retrieval points to block
-- prompt asks about older context
-- block belongs to pinned system prompt
-- block is repeatedly used
-
----
-
-## 15. KV Eviction
-
-Evict KV block when:
-
-- attention score decays
-- outside active window
-- session idle
-- DRAM pressure high
-- block compresses well
-- recomputation is cheaper than retention
-
----
-
-## 16. MoE Runtime
+## 18. MoE Runtime
 
 For Mixture-of-Experts models:
 
@@ -425,7 +433,7 @@ Expert prefetch input:
 
 ---
 
-## 17. Miss Handling
+## 19. Miss Handling
 
 Miss types:
 
@@ -446,13 +454,13 @@ SRAM miss with DRAM hit:
 DRAM miss requiring flash:
   dangerous
 
-Flash miss:
-  critical failure for latency
+Flash miss on token path:
+  policy failure
 ```
 
 ---
 
-## 18. Miss Recovery
+## 20. Miss Recovery
 
 If a synchronous flash miss occurs:
 
@@ -462,17 +470,18 @@ If a synchronous flash miss occurs:
 4. increase future prefetch window
 5. update predictor penalty
 6. optionally pin similar objects
+7. record a policy failure metric
 
 ---
 
-## 19. Multi-Tenant Runtime
+## 21. Multi-Tenant Runtime
 
 Each tenant/session gets:
 
 ```text
-DRAM budget
+dram budget
 flash queue budget
-SRAM reservation
+sram reservation
 latency target
 priority
 eviction class
@@ -490,7 +499,7 @@ decode-heavy
 
 ---
 
-## 20. Runtime Metrics
+## 22. Runtime Metrics
 
 Track:
 
@@ -500,11 +509,14 @@ Track:
 - SRAM hit rate
 - DRAM hit rate
 - flash synchronous miss rate
+- sync flash policy failures
 - prefetch accuracy
 - prefetch waste
+- late prefetch rate
 - DRAM pressure
-- SSD queue depth
-- SSD read amplification
+- sequential read ratio
+- random flash read count
+- average read size
 - compression ratio
 - decompression time
 - eviction churn
@@ -512,7 +524,7 @@ Track:
 
 ---
 
-## 21. Runtime Policy Loop
+## 23. Runtime Policy Loop
 
 ```python
 while serving:
@@ -528,28 +540,7 @@ while serving:
 
 ---
 
-## 22. Adaptive Window Sizing
-
-If misses increase:
-
-```text
-increase prefetch distance
-increase DRAM reservation
-reduce batch concurrency
-compress fewer active objects
-```
-
-If waste increases:
-
-```text
-decrease prefetch distance
-tighten prediction threshold
-evict unused prefetched pages
-```
-
----
-
-## 23. Implementation Milestones
+## 24. Implementation Milestones
 
 ### Runtime v0
 
@@ -571,8 +562,9 @@ evict unused prefetched pages
 
 ### Runtime v3
 
-- integration with llama.cpp or vLLM-style serving prototype
-- real KV offload experiments
+- compatibility RAM-emulation mode
+- stream-to-scratchpad mode
+- hybrid migration experiments
 
 ### Runtime v4
 
@@ -582,7 +574,7 @@ evict unused prefetched pages
 
 ---
 
-## 24. Runtime Summary
+## 25. Runtime Summary
 
 The runtime is the brain of the system.
 
@@ -592,7 +584,7 @@ The invention is the policy and orchestration system that ensures:
 
 ```text
 flash work happens early
-DRAM absorbs latency
-SRAM feeds compute
+dram absorbs latency
+sram feeds compute
 tokens do not wait
 ```

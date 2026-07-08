@@ -4,438 +4,101 @@
 
 This document is an invention brainstorming document, not legal advice.
 
-The goal is to identify potentially protectable technical concepts around a low-cost inference memory hierarchy using SRAM, DRAM/LPDDR, and SSD flash.
-
-The strongest patent direction is not merely:
-
-> Put model data on SSD.
-
-That is too broad and obvious.
-
-The stronger direction is:
-
-> A predictive runtime/compiler memory fabric that hides flash latency by using DRAM as a staging tier and SRAM as a deterministic compute-adjacent tier.
+The strongest direction is not "put model data on SSD." The stronger direction is a deterministic inference memory orchestration system that hides flash latency by using DRAM as a predictive staging tier and SRAM as a deterministic scratchpad.
 
 ---
 
-# 1. Core Patent Title
+## 1. Core Patent Title
 
-## System and Method for Flash-Backed SRAM and DRAM Tiered Memory Orchestration for AI Inference
-
-### Core Claim Concept
-
-A system for AI inference that places inference state across SRAM, DRAM, and flash based on predicted future token-level access, where flash reads are issued asynchronously before the corresponding data is required by the compute engine.
-
-### Key Elements
-
-- SRAM hot tier
-- DRAM staging tier
-- flash capacity tier
-- token-aware prediction
-- tiered residency map
-- asynchronous flash prefetch
-- SRAM promotion before compute
-- flash miss penalty feedback
+System and Method for Deterministic Flash-Backed SRAM and DRAM Memory Orchestration for AI Inference
 
 ---
 
-# 2. Token-Aware Flash Prefetcher
+## 2. Existing Strong Directions
 
-## Concept
-
-A prefetcher predicts data required by future tokens and initiates flash reads before the token path reaches those objects.
-
-### Claims
-
-- predicting future KV blocks based on token position
-- predicting future layer tensors based on execution order
-- predicting future expert pages based on router probabilities
-- dynamically adjusting prefetch distance based on latency misses
-
----
-
-# 3. SRAM Deterministic Hot-Path Scheduler
-
-## Concept
-
-SRAM is managed as a deterministic compute-adjacent tier, not as a conventional cache.
-
-### Claims
-
-- reserving SRAM regions per compute step
-- promoting only objects with bounded next-use deadlines
-- evicting immediately after micro-kernel completion
-- using compiler tile schedule to avoid SRAM thrash
+- token-aware flash prefetch
+- SRAM deterministic hot-path scheduling
+- DRAM as predictive shock absorber
+- flash-native tensor layout
+- KV cache temperature tracking
+- MoE expert flash residency
+- compiler-directed residency metadata
+- adaptive prefetch windows
+- multi-tenant flash-aware scheduling
 
 ---
 
-# 4. DRAM as Predictive Shock Absorber
+## 3. Trace-Guided Flash Linearization for AI Inference
 
-## Concept
+A method that records inference memory accesses and repacks flash-resident tensor objects into sequential layouts.
 
-DRAM absorbs flash variability by holding a rolling window of predicted future inference objects.
+Claim themes:
 
-### Claims
-
-- DRAM window size based on flash latency and model layer time
-- dynamic enlargement after late flash completions
-- dynamic shrinking when prefetch waste is high
-- per-session DRAM reservations based on latency class
-
----
-
-# 5. Flash-Native Tensor Layout
-
-## Concept
-
-Tensors are stored in flash-aligned sequential bundles matching inference execution order.
-
-### Claims
-
-- packing layer tensors in execution order
-- grouping co-accessed tensors into flash bundles
-- aligning compression blocks to flash page boundaries
-- profile-guided repacking based on runtime traces
+- capture trace from inference run
+- identify repeated access sequences
+- group co-accessed objects
+- repack contiguous flash bundles
+- emit prefetch metadata
+- replay and measure tail latency improvement
 
 ---
 
-# 6. KV Cache Temperature Tracking
+## 4. Hybrid RAM-Emulation to Scratchpad Migration
 
-## Concept
+A system that initially runs flash-backed inference in RAM-emulation mode, records access traces, then migrates hot paths to explicit stream-to-scratchpad transfers.
 
-KV cache blocks are assigned temperatures based on recency, attention probability, and reuse.
+Claim themes:
 
-### Claims
-
-- hot KV in SRAM
-- warm KV in DRAM
-- cold KV in flash
-- temperature based on attention heat map
-- temperature decay over token distance
-- sink-token pinning
+- compatibility first
+- trace capture in functional mode
+- identify optimized streaming path
+- runtime migration to explicit transfer schedule
 
 ---
 
-# 7. Long-Context KV Flash Spill
+## 5. Redundant Sequential Placement
 
-## Concept
+A method of duplicating tensor objects in multiple flash locations to preserve sequential read behavior when SRAM capacity is insufficient.
 
-Long-context KV cache is selectively spilled to flash while preserving interactive latency.
+Claim themes:
 
-### Claims
-
-- old low-attention KV blocks compressed and spilled
-- retrieval-triggered prefetch of old KV
-- semantic clustering of old KV blocks
-- reconstructing attention windows from DRAM and flash-resident blocks
+- duplicate objects in multiple linear layouts
+- trade extra flash capacity for lower random-access risk
+- choose duplicated placement using trace and reuse constraints
 
 ---
 
-# 8. MoE Expert Flash Residency
+## 6. Deadline-Aware Flash Page Streaming
 
-## Concept
+A flash interface that transfers full pages or bundles into DRAM or SRAM based on predicted compute deadlines.
 
-MoE experts are stored in flash and prefetched to DRAM based on predicted routing.
+Claim themes:
 
-### Claims
-
-- storing cold experts in flash
-- staging top-k probable experts in DRAM
-- promoting selected expert tiles to SRAM
-- using router logits to schedule flash reads
-- grouping co-selected experts in flash layout
+- read requests carry expected use step
+- read requests ordered by deadline
+- late completions surfaced as policy failures
+- decompression scheduled against deadline
 
 ---
 
-# 9. Compiler-Directed Memory Residency
+## 7. Scratchpad Ring Buffer for AI Inference
 
-## Concept
+A program-managed SRAM ring buffer where tile lifetimes are determined by compiler and runtime inference schedules.
 
-A compiler emits metadata that instructs the runtime where and when tensors should be staged.
+Claim themes:
 
-### Claims
-
-- tensor prefetch deadlines
-- tier placement hints
-- reuse-distance annotations
-- compression eligibility
-- prefetch bundle metadata
-- eviction-after-use annotations
+- explicit slot reservation
+- fill from DRAM before deadline
+- deterministic tile reuse
+- no passive cache behavior
 
 ---
 
-# 10. Runtime Feedback for Profile-Guided Repacking
-
-## Concept
-
-The runtime records access traces, and a repacking tool reorganizes flash layout.
-
-### Claims
-
-- collecting miss traces
-- identifying co-accessed tensors
-- repacking flash bundles
-- updating compiler metadata
-- improving sequential IO ratio
-
----
-
-# 11. Adaptive Prefetch Window
-
-## Concept
-
-Prefetch distance is adjusted based on measured miss rate, flash latency, compute rate, and DRAM pressure.
-
-### Claims
-
-- increasing window when flash completes late
-- reducing window when unused prefetched pages grow
-- tenant-specific window sizing
-- model-layer-specific window sizing
-
----
-
-# 12. Multi-Tenant Flash-Aware Inference Scheduler
-
-## Concept
-
-The runtime schedules flash and DRAM resources across multiple inference sessions.
-
-### Claims
-
-- per-session DRAM quotas
-- per-session flash queue-depth limits
-- idle session compression
-- active session SRAM pinning
-- latency-class-aware eviction
-
----
-
-# 13. Session Suspend/Resume Using Flash Memory Fabric
-
-## Concept
-
-Inactive inference sessions are demoted into flash and later resumed with predictive prefetch.
-
-### Claims
-
-- storing inactive KV state in flash
-- retaining minimal resume metadata in DRAM
-- prefetching resume window before user-visible continuation
-- priority-based session restoration
-
----
-
-# 14. Flash-Aware Speculative Decoding
-
-## Concept
-
-Speculative decoding branches are stored across tiers depending on probability of acceptance.
-
-### Claims
-
-- accepted branch hot state in SRAM/DRAM
-- likely branch state in DRAM
-- unlikely branch state in flash
-- flash demotion of rejected branch KV
-- branch-aware prefetch
-
----
-
-# 15. Compression-Aware Tier Placement
-
-## Concept
-
-Compression decisions are tied to tier placement and predicted reuse.
-
-### Claims
-
-- do not compress SRAM-resident objects
-- optionally compress DRAM warm objects
-- compress flash cold objects
-- decompression scheduled before predicted use
-- compression policy based on latency budget
-
----
-
-# 16. Flash IO Urgency Classes
-
-## Concept
-
-Flash read requests are assigned urgency classes based on predicted deadline.
-
-### Claims
-
-- urgent miss reads
-- near-future prefetch reads
-- background cold migration reads
-- idle-session restore reads
-- batch prefill reads
-
----
-
-# 17. AI Memory Operating System
-
-## Concept
-
-A unified software layer manages AI inference memory across heterogeneous tiers.
-
-### Claims
-
-- abstract object residency across SRAM, DRAM, flash
-- policy-driven promotion/eviction
-- token-aware prefetch
-- compiler metadata ingestion
-- workload-adaptive placement
-
----
-
-# 18. Semantic KV Clustering
-
-## Concept
-
-KV blocks are clustered by semantic or attention relevance before flash placement.
-
-### Claims
-
-- grouping KV blocks likely to be retrieved together
-- layout based on semantic similarity
-- prefetching clusters rather than individual blocks
-- updating clusters based on observed attention
-
----
-
-# 19. Flash-Aware RAG Memory
-
-## Concept
-
-Retrieval memory is stored on flash and staged into DRAM/SRAM based on prompt and query prediction.
-
-### Claims
-
-- prefetching likely retrieval pages before generation
-- storing embeddings and chunks in flash-aligned groups
-- combining vector search results with memory residency hints
-- pinning high-confidence retrieved chunks
-
----
-
-# 20. Thermal-Aware Flash Prefetch Control
-
-## Concept
-
-Prefetch intensity is adjusted based on SSD thermal and throttling state.
-
-### Claims
-
-- detecting flash thermal throttling
-- reducing speculative prefetch during throttle
-- increasing compression or DRAM reuse during throttle
-- shifting requests across multiple SSDs
-
----
-
-# 21. Endurance-Aware KV Spill
-
-## Concept
-
-The system reduces SSD writes by batching and compressing KV spills.
-
-### Claims
-
-- append-only KV logs
-- write coalescing
-- compression before spill
-- write amplification tracking
-- endurance-aware eviction
-
----
-
-# 22. Flash-Backed Adapter Serving
-
-## Concept
-
-LoRA or adapter weights are stored in flash and loaded predictively.
-
-### Claims
-
-- tenant-specific adapters in flash
-- hot adapters in DRAM
-- active adapter tiles in SRAM
-- adapter prefetch based on request routing
-
----
-
-# 23. Deadline-Based Memory Promotion
-
-## Concept
-
-Objects are promoted based on deadline rather than just recency.
-
-### Claims
-
-- predicted-use deadline
-- deadline-aware DRAM admission
-- deadline-aware SRAM promotion
-- flash IO ordered by deadline
-
----
-
-# 24. Latency-Budgeted Residency Policy
-
-## Concept
-
-Objects are placed based on session latency budgets.
-
-### Claims
-
-- premium session pins more DRAM
-- batch session uses flash more aggressively
-- interactive session gets deeper prefetch
-- policy updates when latency SLO is missed
-
----
-
-# 25. Patent Package Structure
-
-A strong filing could include:
-
-## Independent Claims
-
-1. Tiered SRAM/DRAM/flash inference memory system
-2. Token-aware flash prefetch method
-3. Compiler-directed tensor layout and residency method
-4. KV cache temperature and tiering method
-5. MoE expert flash residency method
-
-## Dependent Claims
-
-- compression
-- multi-tenancy
-- adaptive window sizing
-- profile-guided repacking
-- semantic clustering
-- session suspend/resume
-- SSD thermal control
-- flash endurance management
-
----
-
-# 26. Strongest Commercial Framing
-
-The strongest commercial claim:
-
-> Enables long-context and large-model inference on lower-cost commodity memory systems by converting SSD flash into a hidden capacity tier through predictive DRAM staging and SRAM deterministic scheduling.
-
----
-
-# 27. What Makes It More Than Caching
+## 8. What Makes It More Than Caching
 
 Ordinary caching is reactive.
 
 This system is predictive and inference-aware.
-
-Differences:
 
 ```text
 Caching:
@@ -455,16 +118,8 @@ This architecture:
 
 ```text
 Caching:
-  generic blocks
-
-This architecture:
-  tensors, KV blocks, experts, retrieval pages
-```
-
-```text
-Caching:
   miss penalty accepted
 
 This architecture:
-  miss on token path is treated as failure
+  synchronous flash read on token path is failure
 ```

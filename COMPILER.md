@@ -14,8 +14,9 @@ Without compiler support, the runtime can only infer future access patterns from
 - MoE expert grouping
 - KV access structure
 - prefetch opportunities
+- SRAM tile deadlines
 
-The compiler does not replace the runtime. It gives the runtime better hints.
+The compiler does not replace the runtime. It gives the runtime better hints and better layouts.
 
 ---
 
@@ -35,38 +36,23 @@ KV layout hints
 expert grouping hints
 compression eligibility
 pinning requirements
+trace-guided bundle metadata
 ```
 
 ---
 
-## 3. Model Graph Analysis
+## 3. Deterministic Weight Streaming
 
-The compiler analyzes the model graph:
+Transformer inference is structurally predictable.
 
-```text
-input embeddings
-attention layers
-MLP layers
-normalization
-MoE routing
-projection heads
-adapter modules
-```
+The compiler should mark:
 
-For each node:
+- sequential layer bundles
+- co-accessed tensors
+- reuse points
+- tile deadlines
 
-```text
-node_id
-op_type
-input_tensors
-output_tensors
-weight_tensors
-expected_size
-compute_cost
-memory_cost
-next_use
-last_use
-```
+This enables a runtime to stream future bundles from flash instead of pretending each weight fetch is random.
 
 ---
 
@@ -87,6 +73,7 @@ prefetch_distance_layers: 4
 compression_allowed: true
 pinning_required: false
 layout: flash_sequential
+deadline_step: 10528
 ```
 
 ---
@@ -106,16 +93,7 @@ DO_NOT_COMPRESS
 SEQUENTIAL_STREAM
 GROUP_WITH
 EVICT_AFTER_USE
-```
-
-Example:
-
-```yaml
-tensor: layer_20.mlp.down_proj.weight
-annotation:
-  - PREFETCH_EARLY
-  - PREFER_DRAM
-  - EVICT_AFTER_USE
+DUPLICATE_SEQUENTIALLY
 ```
 
 ---
@@ -127,7 +105,7 @@ Transformer inference has predictable layer order.
 The compiler can tell the runtime:
 
 ```text
-Layer 0 will be used before layer 1
+Layer 0 before layer 1
 Layer 1 before layer 2
 ...
 Layer N before output head
@@ -147,8 +125,6 @@ future layers streaming from flash
 
 Large tensors are divided into tiles.
 
-Tile metadata:
-
 ```yaml
 tile_id: layer_10.attn.k_proj.tile_004
 parent_tensor: layer_10.attn.k_proj.weight
@@ -158,15 +134,16 @@ flash_offset: 982515712
 alignment: 1048576
 next_use_step: 1024
 reuse_distance: 8
+deadline_step: 1031
 ```
+
+Tile deadlines are especially important when SRAM is explicitly managed as a scratchpad.
 
 ---
 
 ## 8. Prefetch Bundle Generation
 
 The compiler can group objects into prefetch bundles.
-
-Example:
 
 ```yaml
 bundle_id: layer_16_bundle
@@ -183,7 +160,27 @@ submit_by_layer: 12
 
 ---
 
-## 9. Flash-Aware Layout
+## 9. Trace-Guided Repacking
+
+The compiler and packer should accept trace files and generate:
+
+- linearized pack file
+- bundle metadata
+- prefetch deadlines
+- SRAM tile schedule
+
+This is a profile-guided flow:
+
+1. run workload
+2. capture trace
+3. identify repeated access sequences
+4. repack model bundles
+5. emit new metadata
+6. replay and compare tail latency
+
+---
+
+## 10. Flash-Aware Layout
 
 The compiler or packaging tool should write model artifacts in flash-friendly order.
 
@@ -198,7 +195,7 @@ Good layout:
 ```text
 large contiguous packed regions
 ordered by execution
-aligned to flash page / erase block boundaries
+aligned to flash page boundaries
 ```
 
 Example packed model:
@@ -218,22 +215,25 @@ model.pack
 
 ---
 
-## 10. Layout Goals
+## 11. Redundant Sequential Placement
 
-- minimize random IO
-- maximize sequential reads
-- group tensors used together
-- align compression blocks
-- allow direct DMA into DRAM buffers
-- support partial loading
-- support checksums
-- allow versioning
+Sometimes SRAM is too small to preserve the ideal reuse order without forcing random flash access.
+
+In those cases the compiler may duplicate data in flash so that multiple sequential paths remain available.
+
+Tradeoff:
+
+```text
+Use extra flash capacity to reduce seeks/random reads.
+```
+
+This is attractive when flash capacity is cheap relative to latency variance.
 
 ---
 
-## 11. KV Compiler Hints
+## 12. KV Compiler Hints
 
-KV cache is runtime-generated, but compiler can help define layout.
+KV cache is runtime-generated, but compiler and packer support can still help define layout.
 
 Hints:
 
@@ -247,20 +247,9 @@ compression eligibility
 attention sparsity pattern
 ```
 
-Example:
-
-```yaml
-kv_policy:
-  block_tokens: 128
-  group_by: [layer, head]
-  compress_cold_after_tokens: 4096
-  pin_sink_tokens: true
-  sink_token_count: 256
-```
-
 ---
 
-## 12. Attention-Aware Hints
+## 13. Attention-Aware Hints
 
 Compiler can expose attention structure:
 
@@ -272,15 +261,13 @@ Compiler can expose attention structure:
 - sink tokens
 - local/global blocks
 
-This matters because it changes memory needs.
+This matters because memory predictability depends on it.
 
 ---
 
-## 13. MoE Compiler Support
+## 14. MoE Compiler Support
 
 For MoE models, compiler can group experts.
-
-Expert metadata:
 
 ```yaml
 expert_id: expert_42
@@ -294,53 +281,11 @@ compression_allowed: true
 default_tier: FLASH
 ```
 
-Compiler can group experts that are often selected together.
+Compiler can group experts that are often selected together and assign deadlines based on router lead time.
 
 ---
 
-## 14. Router-Aware Prefetch
-
-At runtime, router logits may become available shortly before expert execution.
-
-Compiler can expose:
-
-```text
-router location
-expert decision deadline
-minimum prefetch lead time
-fallback expert policy
-```
-
-This lets the runtime prefetch top probable experts into DRAM before final selection.
-
----
-
-## 15. Speculative Decoding Support
-
-Speculative decoding creates branches.
-
-Compiler/runtime should track:
-
-```text
-main branch
-draft branch
-accepted tokens
-rejected tokens
-branch KV state
-rollback cost
-```
-
-Placement:
-
-```text
-SRAM: currently validated branch
-DRAM: likely speculative branch
-Flash: abandoned or low-probability branches
-```
-
----
-
-## 16. Compiler–Runtime Interface
+## 15. Compiler-Runtime Interface
 
 Possible JSON schema:
 
@@ -370,7 +315,7 @@ Possible JSON schema:
 
 ---
 
-## 17. Runtime Feedback to Compiler
+## 16. Runtime Feedback to Compiler
 
 The runtime can emit profiles:
 
@@ -381,28 +326,15 @@ prefetch waste
 DRAM pressure
 expert selection frequency
 attention heat map
+random read count
+late prefetch count
 ```
 
 These can be used to repack the model.
 
 ---
 
-## 18. Profile-Guided Repacking
-
-After observing real workloads:
-
-1. collect traces
-2. identify frequent co-access
-3. reorder flash layout
-4. adjust prefetch bundles
-5. adjust compression blocks
-6. regenerate metadata
-
-This creates a profile-guided memory layout.
-
----
-
-## 19. Compiler Implementation Phases
+## 17. Compiler Implementation Phases
 
 ### Phase 1
 
@@ -426,11 +358,11 @@ MoE expert grouping.
 
 ### Phase 6
 
-Profile-guided repacking.
+Trace-guided repacking and redundant sequential placement.
 
 ---
 
-## 20. Compiler Summary
+## 18. Compiler Summary
 
 The compiler makes the runtime predictive instead of reactive.
 
@@ -446,4 +378,4 @@ The compiler answers:
 What will be needed later?
 ```
 
-Together, they make flash usable as a hidden capacity tier.
+Together, they make flash usable as a hidden capacity tier rather than pretending it is random-access memory.

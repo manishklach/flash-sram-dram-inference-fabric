@@ -8,10 +8,8 @@ SSD flash is not DRAM.
 
 This project does not claim otherwise.
 
-Raw latency hierarchy:
-
 ```text
-SRAM  <<  DRAM  <<  NVMe SSD flash
+SRAM << DRAM << NVMe SSD flash
 ```
 
 The project only works when flash can be moved off the critical path.
@@ -22,8 +20,6 @@ The project only works when flash can be moved off the critical path.
 
 If the model requires unpredictable data from flash during token decode, latency will collapse.
 
-Bad case:
-
 ```text
 compute reaches object
 object is not in SRAM
@@ -32,26 +28,42 @@ runtime must synchronously read SSD
 token waits
 ```
 
-This is the main failure mode.
+That event is treated as a policy failure, not a normal cache miss.
 
 ---
 
-## 3. Workloads That May Work Well
+## 3. Scope Limitation
+
+This architecture is mainly for inference, not training.
+
+Training is harder because:
+
+- writes are frequent
+- flash endurance becomes a major issue
+- activations are larger and more dynamic
+- optimizer state is harder to tier predictively
+
+Inference is the primary target. Training likely needs DRAM-heavy or specialized approaches.
+
+---
+
+## 4. Workloads That May Work Well
 
 - predictable layer streaming
-- long-context with local/sparse attention
+- long-context with local or sparse attention
 - old KV rarely accessed
 - MoE with predictable expert routing
 - RAG where retrieval happens before generation
-- inactive session spill/resume
+- inactive session spill and resume
 - batch prefill with enough lookahead
 - edge systems with relaxed latency
 
 ---
 
-## 4. Workloads That May Perform Poorly
+## 5. Workloads That May Perform Poorly
 
 - random access to old context
+- fully random attention over old context
 - high-entropy MoE routing
 - very small batch with no lookahead
 - workloads with frequent branch rollback
@@ -62,308 +74,76 @@ This is the main failure mode.
 
 ---
 
-## 5. Tail Latency Risk
+## 6. RAM-Emulation Risk
 
-Even if average performance looks good, p99 can be bad.
+RAM-emulation mode may be easy to adopt but dangerously slow.
 
-Possible causes:
+Problems:
 
-- late flash completion
-- SSD queue congestion
-- thermal throttling
-- decompression delay
-- DRAM eviction mistake
-- predictor miss
-- OS scheduler noise
-- filesystem fragmentation
+- performance cliff on random access
+- fragile tail latency
+- cache hierarchy may hide bad behavior until p99 explodes
 
-Mitigation:
-
-- large prefetch window
-- direct IO
-- pinned buffers
-- sequential layout
-- latency-aware eviction
-- urgent IO class
-- per-session DRAM reserve
-- thermal-aware prefetch reduction
+This mode is useful for compatibility and bring-up, not as proof that the architecture is performant.
 
 ---
 
-## 6. DRAM Pressure
+## 7. Stream-to-Scratchpad Cost
 
-If DRAM is too small, it cannot absorb flash latency.
+Stream-to-scratchpad mode requires significant software changes.
 
-Symptoms:
+Costs:
 
-- prefetched pages evicted before use
-- high eviction churn
-- repeated flash reads
-- low prefetch accuracy
-- high p99 latency
+- runtime redesign
+- compiler metadata
+- explicit transfer scheduling
+- tile deadline management
+- scratchpad programming model
 
-Mitigation:
-
-- better placement
-- compression
-- smaller prefetch window
-- larger DRAM
-- per-session budgets
-- workload admission control
+This is the higher-performance path, but also the harder engineering path.
 
 ---
 
-## 7. SRAM Thrashing
+## 8. SRAM and Linearization Limits
 
-SRAM is tiny.
-
-If too many hot objects compete, SRAM thrashes.
+If SRAM is too small and data cannot be linearized effectively, performance may degrade.
 
 Symptoms:
 
 - repeated DRAM-to-SRAM transfers
 - compute stalls
-- micro-kernel inefficiency
 - poor tile reuse
+- random flash fallback
 
-Mitigation:
+Mitigations:
 
-- compiler tile scheduling
-- deterministic SRAM allocation
-- pin only current tiles
-- avoid generic cache behavior
-- evict immediately after use
-
----
-
-## 8. Flash Random IO Problem
-
-SSD performs best with large sequential reads.
-
-Bad pattern:
-
-```text
-4KB random read
-4KB random read
-4KB random read
-...
-```
-
-Good pattern:
-
-```text
-4MB sequential read
-8MB sequential read
-16MB sequential read
-```
-
-Mitigation:
-
-- flash-aware tensor layout
-- prefetch bundles
-- profile-guided repacking
-- group co-accessed objects
-- align compression blocks
+- better tile schedule
+- larger DRAM staging window
+- redundant sequential placement
+- revised layout groups
 
 ---
 
-## 9. Compression Tradeoffs
+## 9. Trace-Guided Overfitting Risk
 
-Compression saves capacity but adds latency.
-
-Bad case:
-
-```text
-data arrives from flash
-decompression not complete
-compute waits
-```
-
-Mitigation:
-
-- decompress ahead of time
-- do not compress near-hot data
-- choose fast codecs
-- track decompression cost in policy
-- reserve decompression workers
-
----
-
-## 10. SSD Endurance
-
-KV spill may create writes.
-
-Frequent writes can harm SSD endurance.
-
-Mitigation:
-
-- append-only KV logs
-- write batching
-- compression
-- avoid spilling frequently updated hot state
-- spill only cold stable data
-- endurance-aware policies
-
----
-
-## 11. Thermal Throttling
-
-Sustained SSD reads can throttle.
-
-Mitigation:
-
-- monitor device temperature
-- reduce speculative prefetch
-- increase DRAM reuse
-- distribute across drives
-- avoid unnecessary prefetch waste
-
----
-
-## 12. Operating System Noise
-
-Linux IO scheduling, page cache, filesystem behavior, and CPU scheduling can add jitter.
-
-Mitigation:
-
-- io_uring
-- O_DIRECT
-- fixed buffers
-- CPU affinity
-- huge pages
-- isolated cores
-- preallocated files
-- direct device testing
-
----
-
-## 13. Prediction Error
-
-The architecture depends heavily on prediction.
-
-Prediction can fail because:
-
-- attention shifts unexpectedly
-- user asks about old context
-- MoE routing changes
-- retrieval result is surprising
-- speculative decoding branch fails
-- batch composition changes
-
-Mitigation:
-
-- adaptive feedback
-- larger DRAM window
-- fallback policies
-- priority-based urgent fetch
-- predictor retraining
-- profile-guided layout
-
----
-
-## 14. Multi-Tenant Interference
-
-Many sessions may compete for flash and DRAM.
+If trace-guided layout overfits one workload, generalization may suffer.
 
 Problems:
 
-- noisy neighbor flash queue
-- DRAM pollution
-- hot-session eviction
-- p99 spikes
+- one trace may not represent all prompts
+- expert routing may shift
+- attention patterns may change
+- different tenants may disrupt the layout assumptions
 
-Mitigation:
+Mitigations:
 
-- per-session quotas
-- priority scheduling
-- admission control
-- idle-session demotion
-- latency-class-aware policies
+- use workload families, not single traces
+- maintain hybrid fallback modes
+- compare trace-guided versus generic layouts across workloads
 
 ---
 
-## 15. Hardware Variability
-
-Consumer SSDs and enterprise SSDs behave very differently.
-
-Factors:
-
-- queue depth
-- sustained bandwidth
-- random-read latency
-- thermal limits
-- controller cache
-- NAND type
-- PCIe generation
-
-Benchmarks must report exact device details.
-
----
-
-## 16. What This Architecture Cannot Promise
-
-It cannot promise:
-
-- raw SSD latency equal to DRAM
-- universal HBM-class performance
-- zero miss penalty
-- no DRAM requirement
-- no workload-specific tuning
-- no tail-latency risk
-
----
-
-## 17. Honest Best-Case Use
-
-The best case is:
-
-```text
-predictable future access
-enough compute time to hide IO
-large sequential flash reads
-sufficient DRAM staging
-small hot SRAM set
-```
-
----
-
-## 18. Honest Worst-Case Use
-
-The worst case is:
-
-```text
-random unpredictable access
-small DRAM
-high concurrency
-flash thermal throttling
-dense old-context attention
-```
-
----
-
-## 19. Security and Isolation
-
-If multiple tenants share flash-backed memory:
-
-Risks:
-
-- data leakage through shared pages
-- timing side channels
-- stale KV cache exposure
-- improper session restore
-
-Mitigation:
-
-- per-tenant encryption
-- page ownership tracking
-- secure zeroing
-- access control
-- encrypted flash objects
-- isolation-aware scheduler
-
----
-
-## 20. Summary
+## 10. Summary
 
 The architecture is powerful but conditional.
 
@@ -372,10 +152,10 @@ It works only if:
 ```text
 flash latency is hidden
 prediction is accurate enough
-DRAM is large enough
-SRAM is deterministic
-IO is mostly sequential
+dram is large enough
+sram is explicitly managed
+io is mostly sequential
 tail latency is controlled
 ```
 
-This limitations document should remain part of the repo because honest constraints make the project more credible.
+The repo should stay honest about these limits because the strongest claim here is not that flash behaves like RAM. It is that deterministic inference access may be predictable enough to make flash useful as a hidden capacity tier.

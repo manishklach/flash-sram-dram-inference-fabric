@@ -1,22 +1,22 @@
-# Architecture: Flash–SRAM–DRAM Inference Fabric
+# Architecture: Flash-SRAM-DRAM Inference Fabric
 
 ## 1. Executive Summary
 
-The Flash–SRAM–DRAM Inference Fabric is a tiered memory architecture for AI inference systems.
+The Flash-SRAM-DRAM Inference Fabric is a tiered memory architecture for AI inference systems.
 
 It combines:
 
 ```text
-SRAM  → ultra-low-latency working set
-DRAM  → predictive staging and warm memory
-Flash → high-capacity low-cost backing tier
+SRAM  -> deterministic compute-local working set
+DRAM  -> predictive staging buffer and warm residency layer
+Flash -> low-cost high-capacity sequential stream source
 ```
 
 The architecture is designed around one rule:
 
 > SSD flash must not sit on the synchronous token-critical path.
 
-Instead, the runtime and compiler collaborate to predict future memory needs and stage data into DRAM and SRAM before the compute engine requires it.
+Instead, the runtime and compiler collaborate to predict future memory needs and stage data into DRAM and SRAM before compute requires it.
 
 ---
 
@@ -25,38 +25,38 @@ Instead, the runtime and compiler collaborate to predict future memory needs and
 The system aims to reduce the cost of large-model inference by allowing large quantities of model state, KV cache, expert weights, and retrieval memory to live on commodity flash, while maintaining low visible latency through:
 
 - asynchronous prefetch
+- trace-guided layout
 - token-aware prediction
 - compiler-guided scheduling
 - DRAM staging
-- SRAM hot-set residency
+- SRAM scratchpad residency
 - flash-aligned tensor layout
 - compression and decompression pipelines
-- eviction and promotion policies
+- deadline-aware promotion and eviction
 
 ---
 
 ## 3. High-Level Block Diagram
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│                       Inference Runtime                           │
-│                                                                  │
-│ ┌──────────────┐  ┌────────────────┐  ┌───────────────────────┐ │
-│ │ Token Engine │  │ Residency Mgr  │  │ Predictive Prefetcher │ │
-│ └──────┬───────┘  └───────┬────────┘  └──────────┬────────────┘ │
-│        │                  │                      │              │
-└────────┼──────────────────┼──────────────────────┼──────────────┘
-         │                  │                      │
-         ▼                  ▼                      ▼
-┌────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│     SRAM        │  │     DRAM / LPDDR     │  │     NVMe Flash       │
-│ hot token tiles │  │ staging / warm pages │  │ cold capacity tier    │
-└────────────────┘  └─────────────────────┘  └─────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  GPU / NPU / ASIC / CPU Compute                   │
-└──────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                       Inference Runtime                          |
+|                                                                  |
+| +--------------+  +----------------+  +-----------------------+ |
+| | Token Engine |  | Residency Mgr  |  | Predictive Prefetcher | |
+| +------+-------+  +--------+-------+  +-----------+-----------+ |
++--------+-------------------+---------------------- +------------+
+         |                   |                       |
+         v                   v                       v
++----------------+  +----------------------+  +----------------------+
+|      SRAM      |  |    DRAM / LPDDR      |  |     NVMe Flash       |
+| scratchpad ring|  | predictive staging   |  | sequential capacity  |
++----------------+  +----------------------+  +----------------------+
+         |
+         v
++------------------------------------------------------------------+
+|                  GPU / NPU / ASIC / CPU Compute                  |
++------------------------------------------------------------------+
 ```
 
 ---
@@ -72,7 +72,7 @@ It should contain only the data needed for the immediate compute step or near-im
 ### Stores
 
 - active matrix tiles
-- active KV blocks
+- active KV tiles
 - attention metadata
 - decode scratch buffers
 - decompressed tensor fragments
@@ -85,9 +85,9 @@ It should contain only the data needed for the immediate compute step or near-im
 
 - deterministic access
 - bounded latency
-- low miss rate
+- predictable lifetimes
 - tight integration with compute
-- high reuse over a short window
+- explicit tile deadlines
 
 ### SRAM Should Not Store
 
@@ -101,9 +101,9 @@ It should contain only the data needed for the immediate compute step or near-im
 
 ## 4.2 DRAM / LPDDR Tier
 
-DRAM is the prediction and staging tier.
+DRAM is the predictive staging tier.
 
-It is large enough to absorb flash latency but cheaper and more available than premium accelerator memory.
+It is not simply a cache. It is the buffer that absorbs flash latency and feeds the SRAM scratchpad ahead of deadlines.
 
 ### Stores
 
@@ -129,15 +129,9 @@ It is large enough to absorb flash latency but cheaper and more available than p
 
 ### DRAM as Shock Absorber
 
-Flash has high latency relative to DRAM.
+> DRAM is the shock absorber between slow high-capacity flash and deterministic SRAM execution.
 
-Therefore DRAM acts as a shock absorber:
-
-```text
-flash latency variation → absorbed by DRAM staging window
-```
-
-The larger the DRAM window, the more tolerant the system is to flash latency spikes.
+The larger and better-managed the DRAM staging window, the more tolerant the system is to flash latency variation.
 
 ---
 
@@ -145,7 +139,7 @@ The larger the DRAM window, the more tolerant the system is to flash latency spi
 
 Flash is the capacity tier.
 
-It is not treated as memory in the conventional random-access sense. It is treated as a large sequential streaming reservoir.
+It is not treated as generic random-access memory. It is treated as a sequential streaming reservoir that can supply large bundles ahead of use.
 
 ### Stores
 
@@ -175,7 +169,7 @@ It is not treated as memory in the conventional random-access sense. It is treat
 - service random per-token fetches synchronously
 - act as a direct replacement for SRAM
 - act as a direct replacement for DRAM
-- store frequently changing active decode state unless buffered
+- hide poor layouts behind a generic cache model
 
 ---
 
@@ -184,7 +178,7 @@ It is not treated as memory in the conventional random-access sense. It is treat
 ## 5.1 Critical Path
 
 ```text
-SRAM → compute → token output
+SRAM -> compute -> token output
 ```
 
 The critical path must be deterministic.
@@ -192,15 +186,15 @@ The critical path must be deterministic.
 ## 5.2 Near-Critical Path
 
 ```text
-DRAM → SRAM
+DRAM -> SRAM
 ```
 
-DRAM refills SRAM before the compute unit stalls.
+DRAM refills the scratchpad before compute stalls.
 
 ## 5.3 Hidden Path
 
 ```text
-Flash → DRAM
+Flash -> DRAM
 ```
 
 Flash operates ahead of time.
@@ -211,7 +205,9 @@ Flash operates ahead of time.
 
 ## 6.1 Model Weights
 
-Model weights can be divided into:
+Many inference paths do not require truly random weight access.
+
+Transformer layers execute in order, so weights can often be organized as:
 
 - always-hot weights
 - layer-sequential weights
@@ -229,20 +225,16 @@ DRAM: upcoming layers / hot weights
 Flash: cold layer pages / experts / adapters
 ```
 
----
-
 ## 6.2 KV Cache
-
-KV cache is a major target for this architecture.
 
 KV cache naturally has temperature:
 
 ```text
-recent tokens       → hot
-near history        → warm
-old long context    → cold
-rarely attended     → cold
-sink tokens         → pinned hot/warm
+recent tokens       -> hot
+near history        -> warm
+old long context    -> cold
+rarely attended     -> cold
+sink tokens         -> pinned hot/warm
 ```
 
 Placement:
@@ -252,8 +244,6 @@ SRAM: current attention tiles
 DRAM: recent/high-attention KV blocks
 Flash: old or low-attention KV blocks
 ```
-
----
 
 ## 6.3 MoE Experts
 
@@ -267,13 +257,9 @@ DRAM: likely top-k experts
 Flash: cold experts
 ```
 
-The predictor can use routing probabilities to prefetch likely experts.
-
----
-
 ## 6.4 Retrieval Pages
 
-RAG workloads often require external memory.
+RAG workloads often expose retrieval activity before generation, which makes staging possible.
 
 Placement:
 
@@ -285,7 +271,40 @@ Flash: full retrieval memory
 
 ---
 
-## 7. Residency Manager
+## 7. Deterministic Access and Linearized Flash
+
+Model weights do not need true random access in many inference paths.
+
+- layer access can be streamed
+- trace capture can identify repeated access order
+- flash layout should be optimized around sequential reads
+- runtime should treat random flash reads as exceptional
+- late reads should be surfaced as policy failures, not normalized as ordinary misses
+
+```text
+Compiler / Trace Capture
+        |
+        v
+Linear Flash Layout
+        |
+        v
+Async Sequential Flash Reads
+        |
+        v
+DRAM Staging Window
+        |
+        v
+SRAM Scratchpad Ring
+        |
+        v
+Compute
+```
+
+This is one of the main distinctions from virtual memory or generic caching.
+
+---
+
+## 8. Residency Manager
 
 The residency manager tracks every object:
 
@@ -301,6 +320,7 @@ reuse_distance
 compression_state
 pinned_state
 eviction_priority
+deadline
 ```
 
 Example object types:
@@ -317,12 +337,12 @@ SESSION_STATE
 
 ---
 
-## 8. Promotion Policy
+## 9. Promotion Policy
 
 Promotion moves data upward:
 
 ```text
-Flash → DRAM → SRAM
+Flash -> DRAM -> SRAM
 ```
 
 Promotion triggers:
@@ -332,17 +352,18 @@ Promotion triggers:
 - high attention score
 - high expert routing probability
 - compiler hint
-- speculative branch probability
+- trace-derived bundle ordering
 - session priority
+- explicit tile deadline
 
 ---
 
-## 9. Eviction Policy
+## 10. Eviction Policy
 
 Eviction moves data downward:
 
 ```text
-SRAM → DRAM → Flash
+SRAM -> DRAM -> Flash
 ```
 
 Eviction triggers:
@@ -357,7 +378,7 @@ Eviction triggers:
 
 ---
 
-## 10. Prefetch Windows
+## 11. Prefetch Windows
 
 A prefetch window defines how far ahead the runtime streams data.
 
@@ -366,8 +387,8 @@ Example:
 ```text
 current layer: 12
 SRAM: layer 12 tiles
-DRAM: layers 13–16
-Flash streaming: layers 17–32
+DRAM: layers 13-16
+Flash streaming: layers 17-32
 ```
 
 The window size depends on:
@@ -383,7 +404,7 @@ The window size depends on:
 
 ---
 
-## 11. Flash-Aware Tensor Layout
+## 12. Flash-Aware Tensor Layout
 
 Tensor storage on flash should avoid random access.
 
@@ -397,13 +418,14 @@ Recommended layout properties:
 - metadata separated from bulk payload
 - append-friendly session KV logs
 - read-optimized cold pages
+- optional redundant sequential placement when capacity is cheaper than seeks
 
 Example:
 
 ```text
-/model/layer_000/qkv.block
-/model/layer_001/qkv.block
-/model/layer_002/qkv.block
+/model/layer_000/qkv.bundle
+/model/layer_001/qkv.bundle
+/model/layer_002/qkv.bundle
 
 /kv/session_42/head_00/block_0000.kv
 /kv/session_42/head_00/block_0001.kv
@@ -412,7 +434,7 @@ Example:
 
 ---
 
-## 12. Compression
+## 13. Compression
 
 Cold objects are good compression candidates.
 
@@ -432,20 +454,11 @@ DRAM: mixed compressed/uncompressed
 Flash: compressed
 ```
 
-Compression metadata:
-
-```text
-compression_type
-original_size
-compressed_size
-decompress_cost
-decompress_target_tier
-checksum
-```
+Decompression must complete before the object's deadline.
 
 ---
 
-## 13. DMA and IO Pipeline
+## 14. DMA and IO Pipeline
 
 The system should use asynchronous IO.
 
@@ -463,21 +476,26 @@ Pipeline:
 
 ```text
 submit flash read
-    ↓
+    |
+    v
 SSD DMA to DRAM buffer
-    ↓
+    |
+    v
 optional decompression
-    ↓
+    |
+    v
 residency table update
-    ↓
+    |
+    v
 SRAM promotion request
-    ↓
+    |
+    v
 compute consumes tile
 ```
 
 ---
 
-## 14. Multi-Tenant Scheduling
+## 15. Multi-Tenant Scheduling
 
 For serving multiple users, the runtime must manage memory fairness.
 
@@ -489,7 +507,7 @@ priority
 latency_budget
 context_length
 active_decode_state
-DRAM_reservation
+dram_reservation
 flash_queue_depth
 miss_history
 ```
@@ -504,7 +522,7 @@ Policies:
 
 ---
 
-## 15. Failure Modes
+## 16. Failure Modes
 
 Critical failure modes:
 
@@ -512,39 +530,39 @@ Critical failure modes:
 - predictor miss rate too high
 - DRAM staging window too small
 - random IO dominates
-- decompression bottleneck
+- decompression misses a deadline
 - SRAM thrashing
 - DRAM thrashing
+- trace-guided layout overfits one workload
 - multi-tenant interference
 - SSD thermal throttling
-- write amplification from KV spills
 
 ---
 
-## 16. Architecture Summary
+## 17. Architecture Summary
 
 ```text
 SRAM:
-  deterministic hot path
+  deterministic scratchpad hot path
 
 DRAM:
-  prediction and staging
+  predictive staging buffer and warm residency layer
 
 Flash:
-  low-cost capacity
+  low-cost capacity and sequential stream source
 
 Runtime:
-  residency and prefetch
+  residency, deadlines, and prefetch orchestration
 
-Compiler:
-  placement hints and dependency graph
+Compiler / Packer:
+  placement hints, trace-guided repacking, and tile scheduling
 
 Goal:
-  hide flash behind compute and DRAM staging
+  hide flash behind compute and predictive staging
 ```
 
 ---
 
-## 17. One-Sentence IP Framing
+## 18. One-Sentence IP Framing
 
-A predictive AI inference memory fabric that uses compiler/runtime guidance to convert commodity SSD flash into a hidden high-capacity tier, while SRAM and DRAM maintain deterministic low-latency token generation.
+A deterministic inference memory orchestration system that converts commodity SSD flash into a hidden high-capacity streaming tier through compiler/runtime guidance, predictive DRAM staging, and explicit SRAM scratchpad scheduling.
