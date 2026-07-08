@@ -1,373 +1,205 @@
 # Flash-SRAM-DRAM Inference Fabric
 
-## One-Line Summary
+<p>
+  <img src="https://img.shields.io/badge/status-simulator/research--prototype-yellow" alt="Status">
+  <img src="https://img.shields.io/github/actions/workflow/status/manishklach/flash-sram-dram-inference-fabric/ci.yml?branch=main&label=tests" alt="CI">
+  <img src="https://img.shields.io/github/license/manishklach/flash-sram-dram-inference-fabric" alt="License">
+  <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-blue" alt="Python">
+  <img src="https://img.shields.io/github/v/tag/manishklach/flash-sram-dram-inference-fabric" alt="Version">
+</p>
 
-A research project exploring deterministic inference memory orchestration across SRAM, commodity DRAM/LPDDR, and NVMe SSD flash.
+> Flash is capacity. DRAM is prediction. SRAM is latency. A synchronous flash read during token generation is treated as a **policy failure**, not a cache miss.
 
-> Flash is capacity. DRAM is prediction. SRAM is latency.
-
----
-
-> **[View the project site](https://manishklach.github.io/flash-sram-dram-inference-fabric/)**
-
----
-
-## Detailed Repository Description
-
-Flash-SRAM-DRAM Inference Fabric is a research project exploring a software-defined memory hierarchy for large-scale AI inference that combines on-chip SRAM, commodity DRAM/LPDDR, and low-cost NVMe SSD flash into a predictive multi-tier memory fabric.
-
-Instead of treating flash as directly addressable inference memory, the architecture uses compiler-guided scheduling, runtime prediction, asynchronous prefetching, and dynamic memory residency to transform flash into a hidden high-capacity tier while keeping the synchronous token-generation path serviced from SRAM and DRAM.
-
-The project investigates long-context KV cache tiering, Mixture-of-Experts (MoE) expert staging, flash-native tensor layouts, predictive residency management, profile-guided memory placement, and Linux asynchronous I/O pipelines. It includes architecture documentation, simulator design, runtime concepts, compiler metadata, benchmarking methodology, and implementation roadmaps for building lower-cost AI inference systems without relying on massive pools of premium accelerator memory.
+**[View the project site](https://manishklach.github.io/flash-sram-dram-inference-fabric/)**
 
 ---
 
-## Core Thesis: Deterministic Inference Memory Orchestration
+## Quickstart
 
-Model inference, unlike game rendering or general CPU workloads, often has highly predictable access patterns.
+```bash
+git clone https://github.com/manishklach/flash-sram-dram-inference-fabric.git
+cd flash-sram-dram-inference-fabric
 
-- Transformer layer execution is deterministic.
-- Weight access can often be linearized into layer bundles and tile sequences.
-- KV cache access has temperature and locality rather than uniform randomness.
-- MoE expert access can often be predicted from router behavior and routing history.
-- Retrieval and RAG memory can often be staged before generation begins.
-- Batch prefill and decode phases expose repeated, traceable access patterns that a runtime can exploit.
+# Run the full simulator matrix (105 configurations):
+python -m scripts.run_sim
 
-Because of this, low-cost flash can be used as a high-capacity sequential streaming tier.
+# Run all tests:
+python -m pytest tests/ -v
+```
 
-The goal is not to make flash behave like true random-access memory.
+Sample output from `python -m scripts.run_sim`:
 
-The goal is to avoid putting flash on the synchronous token path.
-
-> Flash is not treated as slow RAM. Flash is treated as a high-capacity sequential stream source. DRAM/LPDDR is the predictive staging buffer. SRAM is the deterministic scratchpad hot path.
-
-> A synchronous flash read during token generation is treated as a policy failure, not a normal cache miss.
-
-This framing is the main difference between this repo and generic virtual memory or SSD caching. The core idea is to exploit deterministic or traceable inference access patterns to linearize, prefetch, stage, and promote data before compute needs it.
-
----
-
-## Why This Exists
-
-AI inference is increasingly limited by memory cost, capacity, bandwidth, and energy.
-
-Modern LLM serving often assumes that important model state must live in expensive accelerator-attached memory. This makes long-context inference, large MoE models, edge deployment, and on-prem enterprise inference costly.
-
-This project explores a different path:
-
-- SRAM for the deterministic compute-local hot path
-- DRAM / LPDDR for predictive staging and warm residency
-- NVMe SSD flash for low-cost high-capacity storage
-
-The central idea is not to make SSD flash as fast as DRAM. That is not the claim.
-
-The central idea is to determine whether deterministic inference access can be transformed into mostly sequential flash streams that are hidden behind DRAM staging and explicit SRAM scheduling.
-
----
-
-## Core Architecture
-
-```text
-                      +--------------------------+
-                      |       AI Compute         |
-                      |  GPU / NPU / ASIC / CPU |
-                      +-------------+------------+
-                                    |
-                                    v
-                      +--------------------------+
-                      |           SRAM           |
-                      | deterministic scratchpad|
-                      | hot tiles / active KV   |
-                      +-------------+------------+
-                                    |
-                                    v
-                      +--------------------------+
-                      |       DRAM / LPDDR       |
-                      | predictive staging buffer|
-                      | warm KV / metadata / maps|
-                      +-------------+------------+
-                                    |
-                                    v
-                      +--------------------------+
-                      |      NVMe SSD Flash      |
-                      | sequential capacity tier |
-                      | cold KV / model bundles  |
-                      +--------------------------+
+```
+workload,mode,policy,p50_us,p95_us,p99_us,seq_ratio,sync_failures,prefetch_accuracy,prefetch_waste_rate,energy_joules
+long_context_kv,stream_to_scratchpad,fixed_window,2671.7,2821.4,3673.6,1.000,0,0.032,0.968,0.009340
+cold_fanout,hybrid,fixed_window,8015.2,8015.2,8015.2,1.000,0,0.984,0.024,0.042928
+rag,hybrid,fixed_window,3671.7,4247.7,6238.0,0.845,42,0.031,0.969,0.010497
 ```
 
 ---
 
-## Main Claim
+## Headline Results
 
-A system can approach DRAM-like end-to-end inference latency for selected workloads by transforming SSD access from:
+The simulator runs **7 workloads × 3 interface modes × 5 prefetch policies** (105 configs). Key findings:
 
-```text
-random synchronous reads on the token path
+### Stream-to-scratchpad eliminates synchronous flash failures
+
+| Workload | RAM-emulation failures | Stream-to-scratchpad failures | Latency change |
+|---|---|---|---|
+| long_context_kv | 248 | **0** | -25% p50 |
+| random_old_context | 262 | **0** | -20% p50 |
+| cold_fanout | 844 | **0** | -38% p50 |
+| weight_layer | 16,384 | **0** | — (see below) |
+
+### 5-policy comparison on hybrid mode
+
+| Policy | long_context_kv p50 | random_old p50 | cold_fanout p50 | cold_fanout accuracy |
+|---|---|---|---|---|
+| NoPrefetch | 2,672 µs | 5,343 µs | 8,015 µs | — |
+| LRU | 2,672 µs | 5,343 µs | 8,015 µs | 0.000 |
+| FixedWindow | 2,672 µs | 5,343 µs | 8,015 µs | **0.984** |
+| Predictive | 2,672 µs | 5,343 µs | 8,015 µs | 0.001 |
+| Oracle | 2,672 µs | 5,343 µs | 8,015 µs | 0.001 |
+
+### Deployment economics
+
+| Scenario | Viable | Fabric capex | Baseline capex | TCO savings (3yr) |
+|---|---|---|---|---|
+| Enterprise RAG | Yes | $9,428 | $18,500 | **49.1%** |
+| Persistent assistant | Yes | $11,932 | $19,500 | **38.8%** |
+| Cold fan-out retrieval | **No** | — | — | — |
+
+---
+
+## Core Thesis
+
+Model inference has highly predictable access patterns — transformer layers execute in order, weights can be linearized, KV cache has temperature and locality, MoE expert routing is often predictable. This means low-cost NVMe flash can act as a **hidden sequential streaming tier**, with DRAM as the predictive staging buffer and SRAM as the deterministic hot path.
+
+The goal is **not** to make flash behave like DRAM. The goal is to avoid putting flash on the synchronous token path entirely.
+
+```
+Visible latency = max(compute time, SRAM/DRAM service time)
+Not:             compute time + SSD read latency
 ```
 
-into:
+![Memory hierarchy](diagrams/highlevel_memory_hierarchy.svg)
 
-```text
-large sequential asynchronous prefetch into DRAM before compute needs the data
+![Critical vs hidden path](diagrams/critical_path_vs_hidden_path.svg)
+
+---
+
+## What Makes This Different
+
+| Approach | How flash is used | Failure mode |
+|---|---|---|
+| **Generic virtual memory / SSD swap** | Demand-page random access | Page fault adds 80+ µs to token path |
+| **SSD cache (vLLM-style)** | Write-back cache with eviction | Cache miss adds random read latency |
+| **FlexGen / AirLLM** | Offload to CPU DRAM + SSD | CPU→SSD→CPU round trip on every offload |
+| **This project** | Sequential streaming into DRAM before compute needs it | **Policy failure, not cache miss** — synchronous SSD during decode is a design bug |
+
+---
+
+## Related Work
+
+This project draws from and differs from prior work:
+
+- **vLLM / PagedAttention** (Kwon et al., 2023): Uses OS-style paging for KV cache, but keeps everything in GPU HBM. This project targets systems where GPU HBM is uneconomical and uses flash as a capacity tier with explicit residency management.
+- **FlexGen** (Sheng et al., 2023): Offloads KV cache to CPU DRAM + SSD with a cost model for optimal placement. FlexGen treats SSD as a swapping tier with random access; this project insists on transforming SSD access into sequential streaming before compute needs data.
+- **DeepSpeed-ZeRO-Infinity** (Rajbhandari et al., 2021): Offloads model states to CPU/NVMe during training. Addresses a different phase (training vs. inference) but shares the insight that NVMe bandwidth can be leveraged at scale.
+- **AirLLM** (Ding et al., 2024): Offloads individual transformer layers to CPU DRAM for single-GPU inference. This project extends the same principle to a continuous streaming pipeline across SRAM, DRAM, and flash with explicit prefetch scheduling.
+- **InfiniGen** (Lee et al., 2024): Predicts future KV cache needs for long-context inference. Complements this project — their predictor could drive this project's prefetch engine.
+
+---
+
+## Architecture
+
+### Three-tier memory hierarchy
+
+| Tier | Role | Typical capacity | Latency | Bandwidth |
+|---|---|---|---|---|
+| **SRAM** | Deterministic scratchpad, hot tiles, active KV | 64 MB | 5 ns | 1 TB/s |
+| **DRAM / LPDDR** | Predictive staging buffer, warm KV, decompression | 8-512 GB | 80 ns | 100 GB/s |
+| **NVMe Flash** | Sequential capacity tier, cold KV, model bundles | 2-4 TB | 80 µs | 7 GB/s (seq) |
+
+### Example decode pipeline
+
+```
+Token T, layer 12 is computing:
+  SRAM:   serves active layer-12 tiles
+  DRAM:   holds layers 13-16 and hot KV blocks
+  Flash:  streams layers 17-32 and cold KV bundles into DRAM
 ```
 
-The visible token path becomes:
+## Repository Structure
 
-```text
-SRAM -> compute -> output token
 ```
-
-while SSD traffic happens in the hidden path:
-
-```text
-SSD -> DRAM staging -> SRAM promotion
+  simulator/        # 3-tier simulator: tiers, runner, metrics, 5 policies, 7 workloads
+  runtime/             — buffer_pool, flash_io, trace_replay, llama_bridge
+  scripts/          — run_sim, sweep_dram, sweep_lookahead, run_deployment_model
+  tools/            — linearize_trace, pack_flash_layout, analyze_read_pattern
+  tests/             — 63 pytest tests across all modules
+  docs/             — 26 design documents (thesis, trace layout, KV tiering, MoE, etc.)
+  diagrams/         — 6 SVG exports of system architecture diagrams
 ```
 
 ---
 
-## What This Repository Contains
+## Repository Contents
 
-Core documents:
-
-```text
-README.md
-ARCHITECTURE.md
-RUNTIME.md
-COMPILER.md
-ROADMAP.md
-BENCHMARKS.md
-PATENT_IDEAS.md
-THREATS_AND_LIMITATIONS.md
-```
-
-Key supporting documents:
-
-```text
-docs/DETERMINISTIC_INFERENCE_THESIS.md
-docs/TRACE_GUIDED_LINEARIZATION.md
-docs/SCRATCHPAD_RING_BUFFER.md
-docs/FLASH_INTERFACE_MODES.md
-docs/SIMULATOR_DESIGN.md
-docs/FLASH_LAYOUT.md
-docs/KV_CACHE_TIERING.md
-docs/MOE_EXPERT_TIERING.md
-docs/LINUX_IO_RUNTIME.md
-docs/DATA_FORMATS.md
-docs/DIAGRAMS.md
-docs/COMPRESSION_AND_DECOMPRESSION.md
-docs/LATENCY_BUDGET_MODEL.md
-docs/PREDICTOR_MODEL_DESIGN.md
-docs/COMMERCIALIZATION_STRATEGY.md
-docs/PRODUCT_WEDGE.md
-```
-
-Early implementation stubs:
-
-```text
-simulator/
-tools/
-scripts/run_sim.py
-```
-
----
-
-## Target Workloads
-
-This architecture is especially relevant for:
-
-- long-context LLM inference
-- retrieval-augmented generation
-- MoE expert serving
-- enterprise on-prem inference
-- low-cost inference appliances
-- CPU/NPU inference systems
-- edge servers
-- local AI assistants
-- large batch prefill
-- multi-tenant inference with cold state
+- **`simulator/`** — 3-tier SRAM/DRAM/Flash memory model with 5 prefetch policies (NoPrefetch, LRU, FixedWindow, Predictive, Oracle), 7 synthetic workload generators (KV, weight, MoE, RAG), 3 interface modes (RAM-emulation, hybrid, stream-to-scratchpad), and a StreamingMetrics engine tracking 20+ metrics including energy consumption.
+- **`runtime/`** — DRAM buffer state machine, async flash reader (io_uring-style), trace-driven NVMe replayer, and a ctypes bridge to llama.cpp.
+- **`scripts/`** — Runner scripts for the simulator matrix, DRAM capacity sweep, combined lookahead+DRAM sweep, and deployment economics model.
+- **`tools/`** — Trace linearizer (groups co-accessed objects into bundled layouts), flash packer (writes binary `.pack` files), and read pattern analyzer (reports sequential ratios, sync failures, energy by workload).
+- **`tests/`** — 63 passing pytest tests covering tiers, metrics, workloads, runner, buffer pool, flash IO, and tools.
+- **`docs/`** — 26 design documents covering the core thesis, trace-guided linearization, scratchpad ring buffer, flash interface modes, simulator design, flash layout, KV cache tiering, MoE expert tiering, Linux IO runtime, data formats, compression, latency budget model, predictor model design, energy cost model, hardware co-design, and commercialization.
 
 ---
 
 ## Non-Goals
 
-This project does not claim that:
-
+This project does not claim:
 - SSD raw latency equals DRAM latency
 - SSD should be accessed randomly during decode
-- all model weights can be fetched from flash per token
-- every workload can reach HBM-class performance
-- training is solved
-- prediction misses are free
-
-The goal is narrower:
-
-> Explore whether deterministic inference access can be predicted, traced, linearized, and streamed so that commodity flash can act as a low-cost capacity tier.
-
----
-
-## Key Components
-
-### 1. SRAM Scratchpad Hot Path
-
-SRAM holds:
-
-- current token working set
-- active attention tiles
-- current KV tiles
-- decode scratch buffers
-- routing metadata
-- decompressed tensor tiles
-- DMA queue descriptors
-
-### 2. DRAM / LPDDR Predictive Staging Layer
-
-DRAM / LPDDR holds:
-
-- warm KV blocks
-- upcoming layer bundles
-- staged flash reads
-- likely experts
-- decompression buffers
-- residency metadata
-- page tables
-- token history
-- predictor state
-
-### 3. Flash Sequential Capacity Layer
-
-SSD flash holds:
-
-- cold KV cache
-- long-context history
-- model bundles
-- cold MoE experts
-- embedding pages
-- retrieval memory
-- suspended sessions
-- compressed cold state
-
-### 4. Trace-Guided Layout and Prefetch Engine
-
-The system can:
-
-- capture inference traces
-- identify repeated sequences
-- repack flash-resident objects into linear layouts
-- generate prefetch metadata
-- replay with sequential streaming
-
----
-
-## Core Principle
-
-```text
-Visible latency = max(compute time, SRAM/DRAM service time)
-
-Not:
-
-Visible latency = compute time + SSD read latency
-```
-
-If SSD appears directly in the token-critical path, the design has failed.
-
----
-
-## Example Decode Pipeline
-
-```text
-Token T, layer 12 is computing:
-
-SRAM:
-  serves active layer-12 tiles
-
-DRAM:
-  holds layers 13-16 and hot KV blocks
-
-SSD:
-  streams layers 17-32 and cold KV bundles into DRAM
-```
-
-By the time the model reaches layer 17, the next data should already be present in DRAM and ready for promotion into SRAM.
-
----
-
-## Design Philosophy
-
-This is not generic SSD caching.
-
-It is a deterministic inference memory orchestration system built from:
-
-- compiler scheduling
-- runtime prediction
-- trace capture and replay
-- flash-aware tensor layout
-- async IO
-- compression
-- KV temperature tracking
-- deadline-aware promotion
-- program-managed SRAM scratchpad execution
+- All model weights can be fetched from flash per token
+- Every workload can reach HBM-class performance
+- Training is solved
+- Prediction misses are free
 
 ---
 
 ## Project Status
 
-The repo currently focuses on architecture, runtime, compiler, and benchmark design, plus an early runnable simulator path for trace-guided streaming research.
+**Current phase:** Simulator/research prototype — no hardware backend yet. The simulator is runnable and produces measured results. The runtime modules (`flash_io.py`, `trace_replay.py`, `llama_bridge.py`) are implemented and testable with temp files but lack real NVMe device validation on Linux.
 
-Current runnable evidence path:
+### Build / test signal
 
-```text
-python scripts/run_sim.py
-python scripts/sweep_dram.py
-python scripts/sweep_lookahead_dram.py
-python scripts/run_deployment_model.py
-```
+| Signal | Status |
+|---|---|
+| Tests (63) | Passing |
+| Simulator (105 configs) | Runs clean |
+| Deployment model | Runs clean |
+| Real NVMe backend | Not yet validated |
+| llama.cpp integration | Implemented, not tested end-to-end |
 
-See:
+### What's next
 
-- `docs/SIMULATOR_PROTOTYPE_RESULTS.md`
-- `docs/DRAM_CAPACITY_SWEEP_RESULTS.md`
-- `docs/LOOKAHEAD_DRAM_SWEEP_RESULTS.md`
-- `docs/DEPLOYMENT_ECONOMICS_RESULTS.md`
-- `docs/LATENCY_BUDGET_MODEL.md`
-- `docs/PREDICTOR_MODEL_DESIGN.md`
-- `benchmarks/results/simulator_matrix.csv`
-- `benchmarks/results/simulator_matrix.json`
-- `benchmarks/results/dram_capacity_sweep.csv`
-- `benchmarks/results/dram_capacity_sweep.json`
-- `benchmarks/results/lookahead_dram_sweep.csv`
-- `benchmarks/results/lookahead_dram_sweep.json`
-- `benchmarks/results/deployment_economics.csv`
-- `benchmarks/results/deployment_economics.json`
+- Fix weight tile pipeline (SRAM weight pipelining to avoid DRAM overflow)
+- Wire `runtime/flash_io.py` against real Linux NVMe device
+- Graduate predictor from heuristics to learned model
+- Multi-tenant scheduling in simulator
 
 ---
 
 ## Commercialization Path
 
-The most credible first business is not a general-purpose replacement for accelerator memory.
-
-The strongest initial wedge is a low-cost inference system for workloads where:
-
-- long-context KV dominates memory cost
-- regulated or on-prem deployment matters
-- latency still matters, but not every workload needs frontier-scale HBM clusters
-- MoE hot sets and cold state can be staged predictively
-- customers care about total system cost, not just benchmark peak throughput
-
-Practical first products could include:
-
-- enterprise on-prem inference appliances for long-context RAG
-- edge and sovereign AI servers with large cold-state capacity
-- MoE-serving systems that keep only hot experts in premium memory
-- software plus reference-platform licensing for OEMs and accelerator vendors
-
-The business thesis is that lower memory cost can unlock workloads that are uneconomic on premium-memory-heavy systems, especially when customers need large context, private deployment, or many idle-but-resumable sessions.
-
----
+The strongest first product is a low-cost inference appliance for enterprise long-context RAG — the scenario where the deployment model shows a clear 49% TCO advantage. See `docs/DEPLOYMENT_ECONOMICS_RESULTS.md` and `docs/COMMERCIALIZATION_STRATEGY.md` for details.
 
 ## Big Vision
 
-The long-term goal is to create a software-defined memory operating system for AI inference.
+A software-defined memory operating system for AI inference that continuously moves tensors, KV blocks, experts, and retrieval state across SRAM, DRAM, and flash based on predicted future use and explicit deadlines.
 
-Instead of treating memory as a static hardware constraint, the runtime continuously moves tensors, KV blocks, experts, and retrieval state across SRAM, DRAM, and flash based on predicted future use and explicit deadlines.
+---
 
-The result, if the thesis holds, is a path toward larger models, longer context windows, and lower-cost AI serving on commodity memory systems.
+## License
+
+MIT. See [LICENSE](LICENSE).

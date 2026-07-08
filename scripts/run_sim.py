@@ -75,6 +75,10 @@ def _run_matrix() -> list[dict]:
 
 
 def main() -> None:
+    if "--smoke" in sys.argv:
+        results = _run_matrix()
+        print("SMOKE OK: %d rows" % len(results))
+        return
     print("workload,mode,policy,p50_us,p95_us,p99_us,seq_ratio,sync_failures,prefetch_accuracy,prefetch_waste_rate,energy_joules")
     results = _run_matrix()
     for row in results:
