@@ -57,7 +57,7 @@ def _transfer_energy_joules(size_bytes: int, tier_key: str) -> float:
     return (bits * pj_per_bit.get(tier_key, 3.5)) / 1_000_000_000_000
 
 
-def _make_room(tier, size_bytes: int, metrics) -> bool:
+def _make_room(tier, size_bytes: int, metrics, already_useful: set[str] | None = None, already_wasted: set[str] | None = None, prefetched_ready_step: dict | None = None) -> bool:
     if size_bytes <= tier.remaining_bytes:
         return True
     needed = size_bytes - tier.remaining_bytes
@@ -68,6 +68,11 @@ def _make_room(tier, size_bytes: int, metrics) -> bool:
             return False
         freed += evicted.size_bytes
         metrics.dram_evictions += 1
+        if already_useful is not None and already_wasted is not None and prefetched_ready_step is not None:
+            if evicted.object_id not in already_useful and evicted.object_id in prefetched_ready_step:
+                if evicted.object_id not in already_wasted:
+                    already_wasted.add(evicted.object_id)
+                    metrics.wasted_prefetches += 1
     return True
 
 
@@ -86,6 +91,8 @@ def run_trace(
     future_by_step = {event.step: event for event in ordered_events}
     prefetched_ready_step: dict[str, int] = {}
     prefetched_issue_step: dict[str, int] = {}
+    already_useful: set[str] = set()
+    already_wasted: set[str] = set()
     token_latencies: dict[int, float] = defaultdict(float)
     metrics = StreamingMetrics()
 
@@ -113,7 +120,7 @@ def run_trace(
                     continue
 
                 future_obj = _object_from_event(future)
-                if not _make_room(dram, size, metrics):
+                if not _make_room(dram, size, metrics, already_useful, already_wasted, prefetched_ready_step):
                     continue
 
                 ttf = flash.submit_read(future.object_id, size, sequential=True)
@@ -144,13 +151,14 @@ def run_trace(
             dram_to_sram_us = dram.transfer_time_us(event.size_bytes)
             sram_obj = _object_from_event(event)
 
-            if _make_room(sram, event.size_bytes, metrics):
+            if _make_room(sram, event.size_bytes, metrics, already_useful, already_wasted, prefetched_ready_step):
                 sram.add(sram_obj)
                 metrics.sram_promotions += 1
                 event_latency += dram_to_sram_us
                 metrics.energy_joules += _transfer_energy_joules(event.size_bytes, "dram")
 
-            if event.object_id in prefetched_ready_step:
+            if event.object_id in prefetched_ready_step and event.object_id not in already_useful:
+                already_useful.add(event.object_id)
                 issued_at = prefetched_issue_step.get(event.object_id, event.step)
                 if event.step - issued_at <= config.useful_prefetch_window_steps:
                     metrics.useful_prefetches += 1
@@ -172,10 +180,15 @@ def run_trace(
                 metrics.sync_flash_policy_failures += 1
 
             future_obj = _object_from_event(event)
-            if _make_room(dram, event.size_bytes, metrics):
+            if _make_room(dram, event.size_bytes, metrics, already_useful, already_wasted, prefetched_ready_step):
                 dram.add(future_obj)
 
         token_latencies[event.token_id] += event_latency
+
+    # End-of-run: objects still in prefetched_ready_step that were never useful count as waste
+    for oid in prefetched_ready_step:
+        if oid not in already_useful and oid not in already_wasted:
+            metrics.wasted_prefetches += 1
 
     metrics.token_latencies_us = [token_latencies[tid] for tid in sorted(token_latencies)]
     metrics.recompute_ratios()
@@ -183,3 +196,4 @@ def run_trace(
     metrics.dram_utilization_pct = dram.utilization_pct
     metrics.flash_queue_peak = max(metrics.flash_queue_peak, flash.in_flight_count)
     return metrics
+

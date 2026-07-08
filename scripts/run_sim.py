@@ -10,111 +10,94 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from simulator.interface_modes import InterfaceMode
+from simulator.policies import (
+    FixedWindowPrefetchPolicy,
+    LRUPolicy,
+    NoPrefetchPolicy,
+    OraclePolicy,
+    PredictivePolicy,
+)
 from simulator.runner import SimulatorConfig, run_trace
 from simulator.workloads import (
     generate_cold_fanout_trace,
     generate_long_context_kv_trace,
+    generate_moe_trace,
+    generate_rag_staging_trace,
     generate_random_old_context_trace,
+    generate_weight_layer_trace,
 )
 
 ARTIFACT_DIR = REPO_ROOT / "benchmarks" / "results"
 CSV_ARTIFACT = ARTIFACT_DIR / "simulator_matrix.csv"
 JSON_ARTIFACT = ARTIFACT_DIR / "simulator_matrix.json"
 
+WORKLOADS = [
+    ("long_context_kv", generate_long_context_kv_trace),
+    ("random_old_context", generate_random_old_context_trace),
+    ("cold_fanout", generate_cold_fanout_trace),
+    ("weight_layer", generate_weight_layer_trace),
+    ("moe_low_entropy", lambda: generate_moe_trace(entropy=0.1)),
+    ("moe_high_entropy", lambda: generate_moe_trace(entropy=0.8)),
+    ("rag", generate_rag_staging_trace),
+]
 
-def _run_workload(name: str, trace, config: SimulatorConfig) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for mode in (
-        InterfaceMode.RAM_EMULATION,
-        InterfaceMode.HYBRID,
-        InterfaceMode.STREAM_TO_SCRATCHPAD,
-    ):
-        metrics = run_trace(trace, interface_mode=mode, config=config)
-        rows.append(
-            {
-                "workload": name,
+INTERFACE_MODES = [
+    InterfaceMode.RAM_EMULATION,
+    InterfaceMode.HYBRID,
+    InterfaceMode.STREAM_TO_SCRATCHPAD,
+]
+
+POLICIES = [
+    ("no_prefetch", NoPrefetchPolicy()),
+    ("lru", LRUPolicy()),
+    ("fixed_window", FixedWindowPrefetchPolicy()),
+    ("predictive", PredictivePolicy()),
+    ("oracle", OraclePolicy()),
+]
+
+
+def _run_matrix() -> list[dict]:
+    rows = []
+    config = SimulatorConfig()
+    for workload_name, trace_fn in WORKLOADS:
+        trace = trace_fn()
+        for mode in INTERFACE_MODES:
+            metrics = run_trace(trace, interface_mode=mode, config=config)
+            row = {
+                "workload": workload_name,
                 "mode": mode.value,
-                "metrics": metrics.as_dict(),
+                "policy": "fixed_window",
             }
-        )
+            row.update(metrics.as_dict())
+            rows.append(row)
     return rows
 
 
 def main() -> None:
-    config = SimulatorConfig()
-    workloads = [
-        ("long_context_kv", generate_long_context_kv_trace()),
-        ("random_old_context", generate_random_old_context_trace()),
-        ("cold_fanout", generate_cold_fanout_trace()),
-    ]
-
-    print(
-        "workload,mode,p50_us,p95_us,p99_us,seq_ratio,random_reads,seq_reads,sync_failures,prefetch_accuracy,prefetch_waste_rate,dram_evictions"
-    )
-    results: list[dict[str, object]] = []
-    for workload_name, trace in workloads:
-        workload_results = _run_workload(workload_name, trace, config)
-        results.extend(workload_results)
-        for row in workload_results:
-            result = row["metrics"]
-            print(
-                ",".join(
-                    [
-                        str(row["workload"]),
-                        str(row["mode"]),
-                        f"{result['p50_token_latency_us']:.1f}",
-                        f"{result['p95_token_latency_us']:.1f}",
-                        f"{result['p99_token_latency_us']:.1f}",
-                        f"{result['sequential_read_ratio']:.3f}",
-                        str(int(result["random_flash_reads"])),
-                        str(int(result["sequential_flash_reads"])),
-                        str(int(result["sync_flash_policy_failures"])),
-                        f"{result['prefetch_accuracy']:.3f}",
-                        f"{result['prefetch_waste_rate']:.3f}",
-                        str(int(result["dram_evictions"])),
-                    ]
-                )
+    print("workload,mode,policy,p50_us,p95_us,p99_us,seq_ratio,sync_failures,prefetch_accuracy,prefetch_waste_rate,energy_joules")
+    results = _run_matrix()
+    for row in results:
+        print(
+            "%s,%s,%s,%.1f,%.1f,%.1f,%.3f,%d,%.3f,%.3f,%.6f" % (
+                row["workload"], row["mode"], row["policy"],
+                row["p50_token_latency_us"], row["p95_token_latency_us"],
+                row["p99_token_latency_us"], row["sequential_read_ratio"],
+                int(row["sync_flash_policy_failures"]),
+                row["prefetch_accuracy"], row["prefetch_waste_rate"],
+                row["energy_joules"],
             )
-
-    print()
-    print("# JSON summary")
-    for row in results:
-        print(json.dumps(row))
-
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    csv_rows: list[dict[str, object]] = []
-    for row in results:
-        metrics = row["metrics"]
-        csv_rows.append(
-            {
-                "workload": row["workload"],
-                "mode": row["mode"],
-                "p50_token_latency_us": metrics["p50_token_latency_us"],
-                "p95_token_latency_us": metrics["p95_token_latency_us"],
-                "p99_token_latency_us": metrics["p99_token_latency_us"],
-                "sequential_read_ratio": metrics["sequential_read_ratio"],
-                "random_flash_reads": metrics["random_flash_reads"],
-                "sequential_flash_reads": metrics["sequential_flash_reads"],
-                "sync_flash_policy_failures": metrics["sync_flash_policy_failures"],
-                "prefetch_accuracy": metrics["prefetch_accuracy"],
-                "prefetch_waste_rate": metrics["prefetch_waste_rate"],
-                "dram_evictions": metrics["dram_evictions"],
-                "dram_peak_resident_objects": metrics["dram_peak_resident_objects"],
-                "sync_flash_miss_rate": metrics["sync_flash_miss_rate"],
-            }
         )
 
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     with CSV_ARTIFACT.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(csv_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(csv_rows)
-
+        if results:
+            writer = csv.DictWriter(handle, fieldnames=list(results[0].keys()))
+            writer.writeheader()
+            writer.writerows(results)
     with JSON_ARTIFACT.open("w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2)
-
-    print()
-    print(f"# Wrote artifacts: {CSV_ARTIFACT.relative_to(REPO_ROOT)}")
-    print(f"# Wrote artifacts: {JSON_ARTIFACT.relative_to(REPO_ROOT)}")
+    print("\n# Wrote artifacts: %s" % CSV_ARTIFACT.relative_to(REPO_ROOT))
+    print("# Wrote artifacts: %s" % JSON_ARTIFACT.relative_to(REPO_ROOT))
 
 
 if __name__ == "__main__":
