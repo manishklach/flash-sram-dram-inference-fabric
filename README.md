@@ -8,6 +8,16 @@ A low-cost AI inference memory architecture that combines **SRAM**, **commodity 
 
 ---
 
+## Detailed Repository Description
+
+Flash–SRAM–DRAM Inference Fabric is a research project exploring a software-defined memory hierarchy for large-scale AI inference that combines on-chip SRAM, commodity DRAM/LPDDR, and low-cost NVMe SSD flash into a predictive multi-tier memory fabric.
+
+Instead of treating flash as directly addressable inference memory, the architecture uses compiler-guided scheduling, runtime prediction, asynchronous prefetching, and dynamic memory residency to transform flash into a hidden high-capacity tier while keeping the synchronous token-generation path serviced from SRAM and DRAM.
+
+The project investigates long-context KV cache tiering, Mixture-of-Experts (MoE) expert staging, flash-native tensor layouts, predictive residency management, profile-guided memory placement, and Linux asynchronous I/O pipelines. It includes architecture documentation, simulator design, runtime concepts, compiler metadata, benchmarking methodology, and implementation roadmaps for building lower-cost AI inference systems without relying on massive pools of premium accelerator memory.
+
+---
+
 ## Why This Exists
 
 AI inference is increasingly limited by memory cost, capacity, bandwidth, and energy.
