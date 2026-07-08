@@ -313,15 +313,19 @@ Current runnable evidence path:
 
 ```text
 python scripts/run_sim.py
+python scripts/sweep_dram.py
 ```
 
 See:
 
 - `docs/SIMULATOR_PROTOTYPE_RESULTS.md`
+- `docs/DRAM_CAPACITY_SWEEP_RESULTS.md`
 - `docs/LATENCY_BUDGET_MODEL.md`
 - `docs/PREDICTOR_MODEL_DESIGN.md`
 - `benchmarks/results/simulator_matrix.csv`
 - `benchmarks/results/simulator_matrix.json`
+- `benchmarks/results/dram_capacity_sweep.csv`
+- `benchmarks/results/dram_capacity_sweep.json`
 
 ---
 
