@@ -18,6 +18,7 @@ class SimulatorConfig:
     lookahead_steps: int = 12
     warmup_steps: int = 24
     locality_block_threshold: int = 4
+    useful_prefetch_window_steps: int = 8
 
 
 def _transfer_time_us(size_bytes: int, *, bandwidth_gbps: float, base_latency_us: float) -> float:
@@ -54,6 +55,7 @@ def run_trace(
     ordered_events = sorted(events, key=lambda event: event.step)
     future_by_step = {event.step: event for event in ordered_events}
     prefetched_ready_step: dict[str, int] = {}
+    prefetched_issue_step: dict[str, int] = {}
     used_prefetch: set[str] = set()
     token_latencies: dict[int, float] = defaultdict(float)
     metrics = StreamingMetrics()
@@ -78,6 +80,7 @@ def run_trace(
                         base_latency_us=config.flash_sequential_overhead_us,
                     ) / config.compute_time_us
                     prefetched_ready_step[future.object_id] = int(ready_step)
+                    prefetched_issue_step[future.object_id] = event.step
                     metrics.prefetched_objects += 1
                     metrics.record_read(future.size_bytes, sequential=True)
 
@@ -88,7 +91,11 @@ def run_trace(
             metrics.dram_hits += 1
             if event.object_id not in used_prefetch:
                 used_prefetch.add(event.object_id)
-                metrics.useful_prefetches += 1
+                issued_at = prefetched_issue_step.get(event.object_id, event.step)
+                if event.step - issued_at <= config.useful_prefetch_window_steps:
+                    metrics.useful_prefetches += 1
+                else:
+                    metrics.wasted_prefetches += 1
         else:
             if ready_step is not None and ready_step > event.step:
                 metrics.late_prefetches += 1
@@ -108,6 +115,9 @@ def run_trace(
         token_latencies[event.token_id] += event_latency
 
     metrics.token_latencies_us = [token_latencies[token_id] for token_id in sorted(token_latencies)]
+    for object_id in prefetched_ready_step:
+        if object_id not in used_prefetch:
+            metrics.wasted_prefetches += 1
     metrics.redundant_capacity_overhead = 0.05 if interface_mode == InterfaceMode.STREAM_TO_SCRATCHPAD else 0.0
     metrics.recompute_ratios()
     return metrics

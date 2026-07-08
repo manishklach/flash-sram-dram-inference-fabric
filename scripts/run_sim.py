@@ -49,7 +49,7 @@ def main() -> None:
     ]
 
     print(
-        "workload,mode,p50_us,p95_us,p99_us,seq_ratio,random_reads,seq_reads,sync_failures,prefetch_accuracy"
+        "workload,mode,p50_us,p95_us,p99_us,seq_ratio,random_reads,seq_reads,sync_failures,prefetch_accuracy,prefetch_waste_rate"
     )
     results: list[dict[str, object]] = []
     for workload_name, trace in workloads:
@@ -70,6 +70,7 @@ def main() -> None:
                         str(int(result["sequential_flash_reads"])),
                         str(int(result["sync_flash_policy_failures"])),
                         f"{result['prefetch_accuracy']:.3f}",
+                        f"{result['prefetch_waste_rate']:.3f}",
                     ]
                 )
             )
@@ -95,6 +96,7 @@ def main() -> None:
                 "sequential_flash_reads": metrics["sequential_flash_reads"],
                 "sync_flash_policy_failures": metrics["sync_flash_policy_failures"],
                 "prefetch_accuracy": metrics["prefetch_accuracy"],
+                "prefetch_waste_rate": metrics["prefetch_waste_rate"],
                 "sync_flash_miss_rate": metrics["sync_flash_miss_rate"],
             }
         )

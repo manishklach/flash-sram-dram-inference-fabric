@@ -28,6 +28,7 @@ class StreamingMetrics:
     token_latencies_us: list[float] = field(default_factory=list)
     prefetched_objects: int = 0
     useful_prefetches: int = 0
+    wasted_prefetches: int = 0
     late_prefetches: int = 0
     dram_hits: int = 0
     sram_hits: int = 0
@@ -69,6 +70,9 @@ class StreamingMetrics:
             "redundant_capacity_overhead": self.redundant_capacity_overhead,
             "prefetch_accuracy": (
                 self.useful_prefetches / self.prefetched_objects if self.prefetched_objects else 0.0
+            ),
+            "prefetch_waste_rate": (
+                self.wasted_prefetches / self.prefetched_objects if self.prefetched_objects else 0.0
             ),
             "late_prefetch_rate": (
                 self.late_prefetches / self.prefetched_objects if self.prefetched_objects else 0.0

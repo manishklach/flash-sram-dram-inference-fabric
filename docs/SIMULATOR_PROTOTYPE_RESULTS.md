@@ -39,15 +39,16 @@ This combination is intentional. The repo should show both where deterministic s
 
 ```text
 workload,mode,p50_us,p95_us,p99_us,seq_ratio,random_reads,seq_reads,sync_failures,prefetch_accuracy
-long_context_kv,ram_emulation,3838.4,3838.4,3838.4,0.000,512,0,512,0.000
-long_context_kv,hybrid,2000.0,2195.3,3838.4,0.908,25,248,25,1.000
-long_context_kv,stream_to_scratchpad,2000.0,2000.0,2000.0,1.000,0,248,0,1.000
-random_old_context,ram_emulation,3838.4,3838.4,3838.4,0.000,512,0,512,0.000
-random_old_context,hybrid,2000.0,3011.1,3838.4,0.926,35,441,35,1.000
-random_old_context,stream_to_scratchpad,2000.0,2000.0,2425.1,0.989,5,449,5,1.000
-cold_fanout,ram_emulation,3838.4,3838.4,3838.4,0.000,512,0,512,0.000
-cold_fanout,hybrid,3608.6,3803.9,3838.4,0.131,444,67,444,1.000
-cold_fanout,stream_to_scratchpad,3608.6,3608.6,3693.6,0.152,417,75,417,1.000
+workload,mode,p50_us,p95_us,p99_us,seq_ratio,random_reads,seq_reads,sync_failures,prefetch_accuracy,prefetch_waste_rate
+long_context_kv,ram_emulation,3838.4,5277.8,5277.8,0.000,527,0,527,0.000,0.000
+long_context_kv,hybrid,2000.0,2750.0,3838.4,0.908,25,248,25,0.032,0.968
+long_context_kv,stream_to_scratchpad,2000.0,2750.0,2750.0,1.000,0,248,0,0.032,0.968
+random_old_context,ram_emulation,7676.7,7676.7,7676.7,0.000,960,0,960,0.000,0.000
+random_old_context,hybrid,4229.8,4459.6,4969.7,0.868,76,498,76,0.430,0.570
+random_old_context,stream_to_scratchpad,4229.8,4425.1,4969.7,0.916,46,500,46,0.422,0.578
+cold_fanout,ram_emulation,11515.1,11515.1,11515.1,0.000,1472,0,1472,0.000,0.000
+cold_fanout,hybrid,9217.2,9676.7,9906.5,0.392,783,504,783,1.000,0.000
+cold_fanout,stream_to_scratchpad,9217.2,9676.7,9906.5,0.403,755,510,755,0.984,0.016
 ```
 
 ---
@@ -56,16 +57,24 @@ cold_fanout,stream_to_scratchpad,3608.6,3608.6,3693.6,0.152,417,75,417,1.000
 
 For `long_context_kv`, the optimized streaming modes dominate because the access pattern is structured enough to benefit from lookahead and reuse.
 
+However, the stricter usefulness window now shows that much of the speculative prefetch volume is not actually helping the immediate token-critical path:
+
+- `hybrid` and `stream_to_scratchpad` both show about `0.968` prefetch waste rate on this trace
+
+That is a useful correction. The architecture may still hide latency, but the current prefetch strategy is overly eager.
+
 For `random_old_context`, the results do degrade, but not catastrophically in this prototype:
 
 - `hybrid` shows a materially worse p95 and more policy failures than on the structured trace
 - `stream_to_scratchpad` remains strong, but now shows a non-zero p99 tail and non-zero policy failures instead of a perfect result
+- both optimized modes now show meaningful speculative waste in the `0.57` range
 
 For `cold_fanout`, the architecture enters a much harsher regime:
 
 - `hybrid` loses most of its advantage and falls back to `444` synchronous flash policy failures
 - `stream_to_scratchpad` is no longer close to perfect and still suffers `417` synchronous flash policy failures
 - sequential-read ratio collapses from near-ideal values to roughly `0.13` to `0.15`
+- latency rises close to the `ram_emulation` baseline because multi-block cold demand overwhelms the current locality model
 
 That is the most important result in the current prototype because it shows a regime where deterministic staging assumptions break down instead of always looking strong.
 
@@ -86,6 +95,7 @@ This is exactly the kind of directional result the repo needs:
 - it distinguishes compatibility mode from optimized mode
 - it provides both a success case and two stress cases
 - it shows a near-failure regime instead of only happy-path wins
+- it exposes that prefetch quality and prefetch quantity are different things
 - it gives a concrete baseline for future simulator work
 
 ---
@@ -99,6 +109,7 @@ This prototype does not prove:
 - full-weight decode streaming viability
 - robust behavior under high-entropy MoE or real production traces
 - that the current prefetch-accuracy metric captures every form of wasted speculative work
+- that the current useful-prefetch window is the right threshold for all workloads
 
 It is an early evidence loop, not a production benchmark.
 
