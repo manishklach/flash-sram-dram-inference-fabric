@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -19,6 +19,7 @@ class SimulatorConfig:
     warmup_steps: int = 24
     locality_block_threshold: int = 4
     useful_prefetch_window_steps: int = 8
+    dram_capacity_bytes: int = 64 * 1_048_576
 
 
 def _transfer_time_us(size_bytes: int, *, bandwidth_gbps: float, base_latency_us: float) -> float:
@@ -56,6 +57,10 @@ def run_trace(
     future_by_step = {event.step: event for event in ordered_events}
     prefetched_ready_step: dict[str, int] = {}
     prefetched_issue_step: dict[str, int] = {}
+    prefetched_size_bytes: dict[str, int] = {}
+    dram_resident_order: deque[str] = deque()
+    dram_resident_set: set[str] = set()
+    dram_resident_bytes = 0
     used_prefetch: set[str] = set()
     token_latencies: dict[int, float] = defaultdict(float)
     metrics = StreamingMetrics()
@@ -81,13 +86,31 @@ def run_trace(
                     ) / config.compute_time_us
                     prefetched_ready_step[future.object_id] = int(ready_step)
                     prefetched_issue_step[future.object_id] = event.step
+                    prefetched_size_bytes[future.object_id] = future.size_bytes
+                    if future.object_id not in dram_resident_set:
+                        dram_resident_set.add(future.object_id)
+                        dram_resident_order.append(future.object_id)
+                        dram_resident_bytes += future.size_bytes
+                        metrics.dram_peak_resident_objects = max(
+                            metrics.dram_peak_resident_objects, len(dram_resident_set)
+                        )
+
+                    while dram_resident_bytes > config.dram_capacity_bytes and dram_resident_order:
+                        evicted_object_id = dram_resident_order.popleft()
+                        if evicted_object_id not in dram_resident_set:
+                            continue
+                        dram_resident_set.remove(evicted_object_id)
+                        dram_resident_bytes -= prefetched_size_bytes.get(evicted_object_id, 0)
+                        metrics.dram_evictions += 1
+                        if evicted_object_id not in used_prefetch:
+                            metrics.wasted_prefetches += 1
                     metrics.prefetched_objects += 1
                     metrics.record_read(future.size_bytes, sequential=True)
 
         event_latency = config.compute_time_us
         ready_step = prefetched_ready_step.get(event.object_id)
 
-        if ready_step is not None and ready_step <= event.step:
+        if ready_step is not None and ready_step <= event.step and event.object_id in dram_resident_set:
             metrics.dram_hits += 1
             if event.object_id not in used_prefetch:
                 used_prefetch.add(event.object_id)
@@ -116,7 +139,7 @@ def run_trace(
 
     metrics.token_latencies_us = [token_latencies[token_id] for token_id in sorted(token_latencies)]
     for object_id in prefetched_ready_step:
-        if object_id not in used_prefetch:
+        if object_id not in used_prefetch and object_id in dram_resident_set:
             metrics.wasted_prefetches += 1
     metrics.redundant_capacity_overhead = 0.05 if interface_mode == InterfaceMode.STREAM_TO_SCRATCHPAD else 0.0
     metrics.recompute_ratios()

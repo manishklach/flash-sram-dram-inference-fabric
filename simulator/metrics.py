@@ -30,6 +30,8 @@ class StreamingMetrics:
     useful_prefetches: int = 0
     wasted_prefetches: int = 0
     late_prefetches: int = 0
+    dram_evictions: int = 0
+    dram_peak_resident_objects: int = 0
     dram_hits: int = 0
     sram_hits: int = 0
     total_events: int = 0
@@ -77,6 +79,8 @@ class StreamingMetrics:
             "late_prefetch_rate": (
                 self.late_prefetches / self.prefetched_objects if self.prefetched_objects else 0.0
             ),
+            "dram_evictions": float(self.dram_evictions),
+            "dram_peak_resident_objects": float(self.dram_peak_resident_objects),
             "dram_hit_rate": self.dram_hits / self.total_events if self.total_events else 0.0,
             "sram_hit_rate": self.sram_hits / self.total_events if self.total_events else 0.0,
             "sync_flash_miss_rate": (
