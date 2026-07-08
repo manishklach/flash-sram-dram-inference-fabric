@@ -162,6 +162,7 @@ Early implementation stubs:
 ```text
 simulator/
 tools/
+scripts/run_sim.py
 ```
 
 ---
@@ -306,7 +307,19 @@ It is a deterministic inference memory orchestration system built from:
 
 ## Project Status
 
-The repo currently focuses on architecture, runtime, compiler, and benchmark design, plus early simulator and tooling stubs for trace-guided streaming research.
+The repo currently focuses on architecture, runtime, compiler, and benchmark design, plus an early runnable simulator path for trace-guided streaming research.
+
+Current runnable evidence path:
+
+```text
+python scripts/run_sim.py
+```
+
+See:
+
+- `docs/SIMULATOR_PROTOTYPE_RESULTS.md`
+- `docs/LATENCY_BUDGET_MODEL.md`
+- `docs/PREDICTOR_MODEL_DESIGN.md`
 
 ---
 
