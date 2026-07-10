@@ -32,6 +32,12 @@ def linearize(
             if line:
                 events.append(json.loads(line))
 
+    object_size_map: dict[str, int] = {}
+    for ev in events:
+        oid = ev.get("object_id", "")
+        if oid:
+            object_size_map[oid] = ev.get("size_bytes", 0)
+
     if bundle_strategy == "layer":
         groups: dict[str, list[str]] = defaultdict(list)
         for ev in events:
@@ -44,10 +50,7 @@ def linearize(
         offset = 0
         for idx, (bundle_id, objs) in enumerate(sorted(groups.items())):
             unique = list(dict.fromkeys(objs))
-            total_size = 0
-            for ev in events:
-                if ev.get("object_id") in unique:
-                    total_size += ev.get("size_bytes", 0)
+            total_size = sum(object_size_map[oid] for oid in unique)
             aligned = ((total_size + page_alignment - 1) // page_alignment) * page_alignment
             bundles.append({
                 "bundle_id": bundle_id,
@@ -84,10 +87,7 @@ def linearize(
         for idx, objs in enumerate(merged):
             bundle_id = f"coaccess_bundle_{idx:03d}"
             unique = list(objs)
-            total_size = 0
-            for ev in events:
-                if ev.get("object_id") in unique:
-                    total_size += ev.get("size_bytes", 0)
+            total_size = sum(object_size_map[oid] for oid in unique)
             aligned = ((total_size + page_alignment - 1) // page_alignment) * page_alignment
             bundles.append({
                 "bundle_id": bundle_id,

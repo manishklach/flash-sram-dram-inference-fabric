@@ -65,6 +65,7 @@ def analyze_trace(path: Path) -> dict[str, Any]:
     steps: set[int] = set()
     sequential_runs = 0
     prev_block: int | None = None
+    prev_ok = False
 
     for ev in events:
         otype = ev.get("object_type", "unknown")

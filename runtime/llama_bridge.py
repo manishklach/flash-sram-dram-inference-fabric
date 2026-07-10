@@ -94,7 +94,6 @@ class LlamaBridge:
             req = self.flash_reader.submit_read(object_id)
             if req:
                 self.metrics.kv_loads_from_flash += 1
-                self.metrics.flash_reads += 1
                 self.flash_reader.wait_completion(object_id)
                 return (ctypes.c_void_p(req.buffer_addr), req.size_bytes)
         self.metrics.kv_loads_from_dram += 1

@@ -102,7 +102,7 @@ class TraceReplayer:
 
     def replay(self, events: list[ReplayEvent], prefetch: bool = True) -> ReplayMetrics:
         self.flash_reader.initialize()
-        layout = self.load_layout(events)
+        layout = self.build_layout(events)
         for entry in layout.values():
             self.flash_reader.register_layout(entry)
 
@@ -139,6 +139,7 @@ class TraceReplayer:
                     if result and result.status == IOStatus.COMPLETED:
                         metrics.flash_reads += 1
                         metrics.flash_bytes_read += event.size_bytes
+                        self.buffer_pool.allocate(event.object_id, event.step)
                     else:
                         metrics.sync_flash_policy_failures += 1
 

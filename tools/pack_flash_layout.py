@@ -23,7 +23,7 @@ def pack(
         header_size = 56
         num_bundles = len(bundles)
         metadata_offset = header_size
-        metadata_size = num_bundles * 64
+        metadata_size = num_bundles * 256
 
         f.write(PACK_MAGIC)
         f.write(struct.pack("<I", PACK_VERSION))
